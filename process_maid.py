@@ -106,7 +106,7 @@ def main():
     output_dir = os.environ.get('OUTPUT_DIR', './data/processed')
     
     # Get all files
-    files = glob.glob(f'{output_dir}/*.pkl')[:1000]
+    files = glob.glob(f'{output_dir}/*.pkl')[:100000]
     batch_size = 1000
     file_batches = [files[i:i+batch_size] for i in range(0, len(files), batch_size)]
 

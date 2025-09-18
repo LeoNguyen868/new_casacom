@@ -1,0 +1,57 @@
+{
+  "home": [
+    "addr:housenumber",
+    "residential",
+    "building"
+  ],
+  "work": [
+    "office",
+    "opening_hours",
+    "internet_access",
+    "phone",
+    "brand",
+    "brand:fr",
+    "brand:wikidata",
+    "brand:wikipedia"
+  ],
+  "leisure": [
+    "leisure",
+    "tourism",
+    "education",
+    "sport",
+    "shop",
+    "public_transport",
+    "parking",
+    "cuisine",
+    "wheelchair",
+    "bench",
+    "shelter",
+    "outdoor_seating",
+    "drive_through",
+    "takeaway",
+    "natural",
+    "internet_access"
+  ],
+  "path": [
+    "aeroway",
+    "foot",
+    "lanes",
+    "oneway",
+    "surface",
+    "footway",
+    "maxspeed",
+    "ref",
+    "sidewalk",
+    "service",
+    "crossing",
+    "traffic_signals",
+    "cycleway:both",
+    "destination",
+    "destination:ref",
+    "railway",
+    "bridge",
+    "lit",
+    "smoothness",
+    "highway"
+  ]
+}

@@ -1,0 +1,13 @@
+polars
+pyarrow
+duckdb
+psutil
+pandas
+numpy
+pygeohash
+timezonefinder
+tqdm
+gzip-reader
+pycountry
+reverse_geocoder
+psycopg2-binary

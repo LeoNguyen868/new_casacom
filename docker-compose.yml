@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  casacom-pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+    volumes:
+      - casacom_data:/app/data
+      - casacom_result:/app/result
+    environment:
+      - AWS_PROFILE=hw  # Default profile, can be overridden
+      - DATA_RAW_PATH=/app/data/raw
+      - OUTPUT_DIR=/app/data/processed
+      - RESULT_DIR=/app/result
+      - POSTGRES_DB=osm
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_HOST=localhost
+      - POSTGRES_PORT=5432
+    command: /app/docker_pipeline.bash  # Run the Docker-compatible pipeline script
+    tty: true  # Keeps container running with a TTY
+    stdin_open: true  # Keep stdin open
+
+volumes:
+  casacom_data:
+    # Using a named volume for data
+  casacom_result:
+    # Using a named volume for results

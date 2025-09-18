@@ -1,0 +1,22 @@
+[plugins]
+endpoint = awscli_plugin_endpoint
+
+[profile casacom]
+aws_access_key_id = ec0de7f2cd854d3b9c00f73a1c873e6c
+aws_secret_access_key = 1050af7a160b4c48a8c80009c278cd2d
+region = gra
+s3 =
+  endpoint_url = https://s3.gra.io.cloud.ovh.net
+  signature_version = s3v4
+  addressing_style = virtual
+s3api =
+  endpoint_url = https://s3.gra.io.cloud.ovh.net
+
+[profile hw]
+aws_access_key_id = 4044533f4903470c854b11bbb2519341
+aws_secret_access_key = 3acb6b2261c6455492eaa635c72e34cc
+region = gra
+s3 =
+  endpoint_url = https://s3.gra.io.cloud.ovh.net
+s3api =
+  endpoint_url = https://s3.gra.io.cloud.ovh.net

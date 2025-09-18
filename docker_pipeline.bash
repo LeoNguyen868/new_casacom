@@ -1,0 +1,100 @@
+#!/bin/bash
+
+# Make sure environment variables are properly set
+echo "Environment setup:"
+echo "DATA_RAW_PATH: $DATA_RAW_PATH"
+echo "OUTPUT_DIR: $OUTPUT_DIR"
+echo "RESULT_DIR: $RESULT_DIR"
+
+# Set the dates to process
+if [ $# -eq 0 ]; then
+    DATES=("2025-08-05")
+else
+    DATES=("$@")
+fi
+
+# Create PGPASS file for passwordless authentication
+echo "Setting up PostgreSQL authentication..."
+echo "localhost:5432:*:postgres:postgres" > ~/.pgpass
+chmod 600 ~/.pgpass
+export PGPASSWORD=postgres
+
+# Start PostgreSQL service if not already running
+echo "Starting PostgreSQL service..."
+pg_ctlcluster 17 main start || echo "PostgreSQL may already be running"
+sleep 3  # Give PostgreSQL time to start
+
+# Check if OSM database exists and is set up
+echo "Checking OSM database..."
+if ! psql -h localhost -U postgres -c '\l' | grep -q osm; then
+    echo "Setting up OSM database..."
+    # Run the setup script if needed
+    /app/setup_osm2pgsql_docker.bash
+else
+    echo "OSM database already exists."
+fi
+
+# Process each date in the list
+for DATE in "${DATES[@]}"; do
+    # Validate date format (YYYY-MM-DD)
+    if ! [[ $DATE =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        echo "Invalid date format: $DATE. Please use YYYY-MM-DD format."
+        continue
+    fi
+
+    # Run download_maroc.py for a specific date
+    echo "Starting data download for $DATE..."
+    python download_maroc.py --start-date "$DATE" --end-date "$DATE"
+
+    # Check if download was successful
+    if [ $? -eq 0 ]; then
+        echo "Download completed successfully for $DATE."
+    else
+        echo "Download failed for $DATE. Skipping to next date."
+        continue
+    fi
+
+    echo "Starting data processing for $DATE..."
+    python process_maroc.py --start-date "$DATE" --end-date "$DATE"
+
+    # Check if processing was successful
+    if [ $? -eq 0 ]; then
+        echo "Processing completed successfully for $DATE."
+    else
+        echo "Processing failed for $DATE. Skipping to next date."
+        continue
+    fi
+
+    echo "Removing raw data for $DATE..."
+    # Use quotes around the path to handle potential spaces in the path
+    rm -rf "${DATA_RAW_PATH}/$DATE"
+
+    # Check if raw data was removed
+    if [ $? -eq 0 ]; then
+        echo "Raw data removed successfully for $DATE."
+    else
+        echo "Failed to remove raw data for $DATE. Check folder permissions."
+    fi
+    
+    echo "Completed pipeline for $DATE"
+    echo "----------------------------------------"
+done
+
+echo "Processing POI"
+python process_maid.py
+
+echo "Completed pipeline for POI"
+echo "----------------------------------------"
+
+echo "Merging results"
+python merge.py
+
+echo "Completed pipeline for merging results"
+echo "----------------------------------------"
+
+# Keep the container running to maintain the PostgreSQL server and allow users to access results
+echo "Pipeline processing completed. Container will remain running."
+echo "Use Ctrl+C or 'docker compose down' to stop the container."
+
+# Keep container running
+tail -f /dev/null

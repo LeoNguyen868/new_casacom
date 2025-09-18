@@ -10,7 +10,7 @@ services:
       - casacom_result:/app/result
     environment:
       - AWS_PROFILE=hw  # Default profile, can be overridden
-      - DATA_RAW_PATH=/app/data/raw
+      - DATA_RAW_PATH=/app/data/raw_rt
       - OUTPUT_DIR=/app/data/processed
       - RESULT_DIR=/app/result
       - POSTGRES_DB=osm
@@ -18,7 +18,6 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_HOST=localhost
       - POSTGRES_PORT=5432
-    command: /app/docker_pipeline.bash  # Run the Docker-compatible pipeline script
     tty: true  # Keeps container running with a TTY
     stdin_open: true  # Keep stdin open
 

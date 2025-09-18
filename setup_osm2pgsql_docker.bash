@@ -48,6 +48,6 @@ su - postgres -c "psql -d osm -c 'CREATE EXTENSION hstore;'"
 
 # Import OSM data using osm2pgsql
 echo "Importing OSM data with osm2pgsql..."
-su - postgres -c "osm2pgsql -d osm -U postgres --create --slim --cache 1000 --number-processes 2 /app/morocco-latest.osm.pbf"
+su - postgres -c "osm2pgsql -d osm -U postgres --create --slim --cache 4000 --number-processes 8 /app/morocco-latest.osm.pbf"
 
 echo "OSM data import completed successfully!"

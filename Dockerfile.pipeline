@@ -45,7 +45,7 @@ COPY *.json /app/
 COPY *.parquet /app/
 COPY *.bash /app/
 COPY entrypoint.sh /app/
-COPY morocco-latest.osm.pbf /app/
+COPY *.pbf /app/
 
 # Create directories
 RUN mkdir -p /app/data/raw /app/data/processed /app/result

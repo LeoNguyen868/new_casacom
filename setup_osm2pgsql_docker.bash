@@ -26,7 +26,7 @@ fi
 
 # Start PostgreSQL service
 echo "Starting PostgreSQL service..."
-su - postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D /var/lib/postgresql/17/main start"
+service postgresql start
 sleep 1  # brief pause
 
 # Wait until PostgreSQL is ready to accept connections

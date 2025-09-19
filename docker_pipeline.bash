@@ -10,7 +10,7 @@ echo "RESULT_DIR: $RESULT_DIR"
 # Set the dates to process
 if [ $# -eq 0 ]; then
     DATES1=(
-        "2025-03-023"
+        "2025-03-23"
         "2025-03-24"
         "2025-03-25"
         "2025-03-26"

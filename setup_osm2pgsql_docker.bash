@@ -64,6 +64,6 @@ sudo -u postgres psql -d osm -c 'CREATE EXTENSION hstore;'
 # Import OSM data using osm2pgsql
 echo "Importing OSM data with osm2pgsql..."
 # Use TCP connection and password auth to avoid unix socket issues
-sudo -u postgres osm2pgsql -H localhost -P 5432 -d osm -U postgres --create --slim --cache 4000 --number-processes 8 ./morocco-latest.osm.pbf
+PGPASSWORD=postgres sudo -u postgres osm2pgsql -H localhost -P 5432 -d osm -U postgres --create --slim --cache 4000 --number-processes 8 ./morocco-latest.osm.pbf
 
 echo "OSM data import completed successfully!"

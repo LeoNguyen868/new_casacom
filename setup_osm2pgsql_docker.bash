@@ -27,7 +27,22 @@ fi
 # Start PostgreSQL service
 echo "Starting PostgreSQL service..."
 su - postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D /var/lib/postgresql/17/main start"
-sleep 3  # Give PostgreSQL a moment to start
+sleep 1  # brief pause
+
+# Wait until PostgreSQL is ready to accept connections
+echo "Waiting for PostgreSQL to become ready..."
+for i in {1..60}; do
+    if pg_isready -h localhost -p 5432 -U postgres > /dev/null 2>&1; then
+        echo "PostgreSQL is ready."
+        break
+    fi
+    if [ $i -eq 60 ]; then
+        echo "PostgreSQL did not become ready in time. Showing status and exiting." >&2
+        su - postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D /var/lib/postgresql/17/main status || true"
+        exit 1
+    fi
+    sleep 1
+done
 
 # Set postgres user password
 echo "Setting postgres user password..."
@@ -48,6 +63,7 @@ su - postgres -c "psql -d osm -c 'CREATE EXTENSION hstore;'"
 
 # Import OSM data using osm2pgsql
 echo "Importing OSM data with osm2pgsql..."
-su - postgres -c "osm2pgsql -d osm -U postgres --create --slim --cache 4000 --number-processes 8 /app/morocco-latest.osm.pbf"
+# Use TCP connection and password auth to avoid unix socket issues
+su - postgres -c "PGPASSWORD=postgres osm2pgsql -H localhost -P 5432 -d osm -U postgres --create --slim --cache 4000 --number-processes 8 /app/morocco-latest.osm.pbf"
 
 echo "OSM data import completed successfully!"

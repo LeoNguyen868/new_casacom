@@ -19,20 +19,9 @@ echo "localhost:5432:*:postgres:postgres" > ~/.pgpass
 chmod 600 ~/.pgpass
 export PGPASSWORD=postgres
 
-# Start PostgreSQL service if not already running
-echo "Starting PostgreSQL service..."
-pg_ctlcluster 17 main start || echo "PostgreSQL may already be running"
-sleep 3  # Give PostgreSQL time to start
-
-# Check if OSM database exists and is set up
-echo "Checking OSM database..."
-if ! psql -h localhost -U postgres -c '\l' | grep -q osm; then
-    echo "Setting up OSM database..."
-    # Run the setup script if needed
-    /app/setup_osm2pgsql_docker.bash
-else
-    echo "OSM database already exists."
-fi
+# Always ensure PostgreSQL is initialized and running, and OSM DB is prepared
+echo "Ensuring PostgreSQL and OSM database are ready..."
+/app/setup_osm2pgsql_docker.bash
 
 # Process each date in the list
 for DATE in "${DATES[@]}"; do

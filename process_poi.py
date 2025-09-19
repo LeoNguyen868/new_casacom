@@ -45,15 +45,21 @@ building_data=json.load(open('./building_data.json'))
 k_mapping={}
 for k,v in key_tag.items():
     for i in v:
-        k_mapping[i]=k
+        if i not in k_mapping:
+            k_mapping[i] = []
+        k_mapping[i].append(k)
 v_mapping={}
 for k,v in value_tag.items():
     for i in v:
-        v_mapping[i]=k
+        if i not in v_mapping:
+            v_mapping[i] = []
+        v_mapping[i].append(k)
 building_mapping={}
 for k,v in building_data.items():
     for i in v:
-        building_mapping[i]=k   
+        if i not in building_mapping:
+            building_mapping[i] = []
+        building_mapping[i].append(k)
 def get_poi_category(lat, lon,v_mapping,k_mapping,building_mapping):
     reference_point = f"ST_Transform(ST_SetSRID(ST_MakePoint({lon}, {lat}), 4326), 3857)"
     
@@ -81,11 +87,11 @@ def get_poi_category(lat, lon,v_mapping,k_mapping,building_mapping):
         for k,v in non_null_pairs.items():
             if k in k_mapping:
                 if k == 'building' and v in building_mapping:
-                    suggest.append(building_mapping[v])
+                    suggest.extend(building_mapping[v])
                 else:
-                    suggest.append(k_mapping[k])
+                    suggest.extend(k_mapping[k])
             if v in v_mapping:
-                suggest.append(v_mapping[v])
+                suggest.extend(v_mapping[v])
             # Special handling for building key
         count={}
         for i in suggest:
@@ -162,19 +168,21 @@ import numpy as np
 from envidence import *
 import timezonefinder as tf
 tz=tf.TimezoneFinder()
+
 def load_maid(maid_file):
     store=EvidenceStore()
     store.load_from_pickle(maid_file)
     geo = []
     d = store.store
-    total_ping=0
+    maid_total_pings=0
     for i in d.keys():
         dr=store.derive(i)
-        total_ping+=dr['level_1_primary']['total_visits']
+        maid_total_pings+=dr['level_1_primary']['pings']
     for i in d.keys():
         
         dr=store.derive(i)
         meta,l1,l2,l4=dr['meta'],dr['level_1_primary'],dr['level_2_secondary'],dr['level_4_duration']
+        l5=dr['level_5_flux']
         s=store.overall_score(dr)
         days=pd.DataFrame({'unique_days':list(d[i]['unique_days'])})
         days['month']=pd.to_datetime(days['unique_days']).dt.month
@@ -194,11 +202,16 @@ def load_maid(maid_file):
             'first_seen': meta['first_seen'],
             'last_seen': meta['last_seen'],
             'est_duration': l4['est_duration'],
-            'total_visits': l1['total_visits'],
+            'pings': l1['pings'],
             'unique_days': l1['unique_days'],
             'entropy_hour_norm': round(l2['entropy_hour_norm'], 2),
             'evidence_score': s,
-            'total_ping': total_ping
+            'maid_total_pings': maid_total_pings,
+            'fluxB': l5['flux_counts']['B'],
+            'fluxC': l5['flux_counts']['C'],
+            'fluxD': l5['flux_counts']['D'],
+            'fluxE': l5['flux_counts']['E'],
+            'fluxF': l5['flux_counts']['F']
         }
         
         # Add day of week columns
@@ -209,8 +222,13 @@ def load_maid(maid_file):
         for month in range(1, 13):
             entry[f'month_{month}'] = month_counts[month]
             
+        # Add hour columns (0-23)
+        for hour in range(24):
+            entry[f'hour_{hour}'] = d[i]['hourly_hist'][hour]
+            
         geo.append(entry)
     return pd.DataFrame(geo)    
+
 def process_maid_data(maid):
     # Load data for the MAID
     pdf = load_maid(maid)
@@ -223,10 +241,10 @@ def process_maid_data(maid):
     q_base = 0.9
     q = min(q_base + np.log2(len(pdf))/100, 0.99)
     est_duration = pdf.est_duration.quantile(q)
-    total_visit = pdf.total_visits.quantile(q)
+    pings = pdf.pings.quantile(q)
     
     # Split data into stationary and movement points
-    is_stationary = (pdf.est_duration >= est_duration) & (pdf.total_visits >= total_visit)
+    is_stationary = (pdf.est_duration >= est_duration) & (pdf.pings >= pings)
     stationary = pdf[is_stationary].reset_index(drop=True)
     movement = pdf[~is_stationary].reset_index(drop=True)
     

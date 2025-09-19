@@ -1,1 +1,8 @@
-morocco-latest.osm.pbf
+*.pbf
+data/
+result.txt
+result/
+venv/
+__pycache__/
+*.csv
+*.gz

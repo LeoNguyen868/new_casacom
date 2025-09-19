@@ -3,6 +3,7 @@
     "allotments",
     "garages",
     "village_green",
+    "green_village",
     "apartments",
     "barracks",
     "bungalow",
@@ -34,9 +35,14 @@
     "living_street",
     "wall",
     "fence",
-    "residential"
+    "residential",
+    "neighbourhood",
+    "suburb",
+    "quarter",
+    "village"
   ],
   "work": [
+    "healthcare",
     "commercial",
     "construction",
     "education",
@@ -181,7 +187,14 @@
     "pancake",
     "tea",
     "burger",
-    "city_wall"
+    "city_wall",
+    "farm",
+    "hotel",
+    "public_building",
+    "shelter",
+    "works",
+    "dam",
+    "breakwater"
   ],
   "path": [
     "asphalt",
@@ -237,9 +250,17 @@
     "excellent",
     "separate",
     "right",
-    "both"
+    "both",
+    "living_street",
+    "traffic_signals",
+    "parking",
+    "rest_area",
+    "services"
   ],
   "leisure": [
+    "park",
+    "green_village",
+    "healthcare",
     "terminal",
     "fairground",
     "aquaculture",
@@ -360,6 +381,23 @@
     "waste_disposal",
     "tree",
     "tree_row",
-    "outdoor_seating"
+    "outdoor_seating",
+    "hotel",
+    "museum",
+    "university",
+    "school",
+    "public",
+    "monastery",
+    "village_green",
+    "community_centre",
+    "social_facility",
+    "coffee_shop",
+    "restaurant",
+    "cafe",
+    "library",
+    "place_of_worship",
+    "square",
+    "historic",
+    "citywalls"
   ]
 }

@@ -22,7 +22,7 @@ class EvidenceStore:
 
     def _init(self):
         return {
-            'total_visits': 0,
+            'pings': 0,
             'first_seen_ts': None,
             'last_seen_ts': None,
             'unique_days': set(),
@@ -42,6 +42,8 @@ class EvidenceStore:
             # Simplified duration tracking
             'hourly_minutes': {}, # Format: {hour: {'min': min_minute, 'max': max_minute}}
             'est_duration': 0,
+            # Flux tracking
+            'flux_counts': {'B': 0, 'C': 0, 'D': 0, 'E': 0, 'F': 0},
         }
     
     def _update_mean_coordinates(self, c: dict, lat: float, lon: float):
@@ -76,7 +78,8 @@ class EvidenceStore:
         return mask
 
     def update(self, new_data: Dict[str, List[Union[str, dt.datetime]]], 
-               coordinates: Optional[Dict[str, Tuple[float, float]]] = None):
+               coordinates: Optional[Dict[str, Tuple[float, float]]] = None,
+               flux_data: Optional[Dict[str, List[str]]] = None):
         """Update evidence store with timestamp data and simplified duration calculation"""
         for gh, ts_list in (new_data or {}).items():
             if not ts_list: 
@@ -92,6 +95,12 @@ class EvidenceStore:
             if coordinates and gh in coordinates:
                 lat, lon = coordinates[gh]
                 self._update_mean_coordinates(c, lat, lon)
+
+            # Update flux counts if provided
+            if flux_data and gh in flux_data:
+                for flux_type in flux_data[gh]:
+                    if flux_type in c['flux_counts']:
+                        c['flux_counts'][flux_type] += 1
 
             # Initialize or reset hourly_minutes for this update
             hourly_minutes = {}
@@ -112,7 +121,7 @@ class EvidenceStore:
                 # Update other tracking fields
                 c['first_seen_ts'] = ts if c['first_seen_ts'] is None or ts < c['first_seen_ts'] else c['first_seen_ts']
                 c['last_seen_ts']  = ts if c['last_seen_ts']  is None or ts > c['last_seen_ts']  else c['last_seen_ts']
-                c['total_visits'] += 1
+                c['pings'] += 1
                 c['unique_days'].add(d)
                 c['hourly_hist'][h] += 1
                 c['weekday_hist'][wd] += 1
@@ -226,6 +235,11 @@ class EvidenceStore:
                 # Legacy format support (direct store)
                 self.store = data
                 
+            # Initialize flux_counts for older data formats
+            for gh, c in self.store.items():
+                if 'flux_counts' not in c:
+                    c['flux_counts'] = {'B': 0, 'C': 0, 'D': 0, 'E': 0, 'F': 0}
+                
         except FileNotFoundError:
             print(f"File not found: {filepath}")
             raise
@@ -272,7 +286,7 @@ class EvidenceStore:
         if gh not in self.store: 
             return None
         c = self.store[gh]
-        visits = c['total_visits']
+        visits = c['pings']
         if visits == 0:
             return None
 
@@ -362,7 +376,7 @@ class EvidenceStore:
                 'mean_coordinate': [c.get('mean_lat', None), c.get('mean_lon', None)] if c.get('mean_lat') is not None else None,
             },
             'level_1_primary': {
-                'total_visits': visits,
+                'pings': visits,
                 'unique_days': unique_days,
                 'active_day_ratio': active_day_ratio,
                 'gap_bins': dict(c['gap_bins']),
@@ -389,13 +403,16 @@ class EvidenceStore:
                 "poi_available": poi_available,
                 "poi_info": poi_info
             },
-            'level_4_duration': duration_info
+            'level_4_duration': duration_info,
+            'level_5_flux': {
+                'flux_counts': dict(c.get('flux_counts', {'B': 0, 'C': 0, 'D': 0, 'E': 0, 'F': 0}))
+            }
         }
     
     @staticmethod
     def score_home(ev: dict, a: float = 2.0) -> float:
         l1, l2 = ev['level_1_primary'], ev['level_2_secondary']
-        visits = l1['total_visits']
+        visits = l1['pings']
         days = l1['unique_days']
 
         # Bayesian shrinkage priors
@@ -424,7 +441,7 @@ class EvidenceStore:
     @staticmethod
     def score_work(ev: dict, a: float = 2.0) -> float:
         l1, l2 = ev['level_1_primary'], ev['level_2_secondary']
-        visits = l1['total_visits']
+        visits = l1['pings']
         days = l1['unique_days']
 
         # Bayesian shrinkage priors
@@ -452,7 +469,7 @@ class EvidenceStore:
     @staticmethod
     def score_leisure(ev: dict, a: float = 2.0) -> float:
         l1, l2 = ev['level_1_primary'], ev['level_2_secondary']
-        visits = l1['total_visits']
+        visits = l1['pings']
         days = l1['unique_days']
 
         # Calculate home and work scores to invert them for leisure

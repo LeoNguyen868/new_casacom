@@ -56,23 +56,73 @@ def process_batch(file_batch, batch_id):
         path_pdf = merged[merged.category=='path'].groupby('maid').agg({
             'coordinate': lambda x: list(x),
             'unique_days': lambda x: round(x.median()),
-            'total_visits': lambda x: round(x.median()),
+            'pings': lambda x: round(x.median()),
             'est_duration': lambda x: round(x.median()),
             'confidence': 'mean',
             'category': 'first',
-            'country': 'first',
+            'country': lambda x: set(x),
             'poi_info': list
         })
-        
         # Clean up merged dataframe
         merged.drop('coordinate', axis=1, inplace=True)
+        # Calculate total flux per maid
+        maid_flux=merged.groupby('maid').agg({
+                'fluxB':'sum',
+                'fluxC':'sum',
+                'fluxD':'sum',
+                'fluxE':'sum',
+                'fluxF':'sum'
+                }).reset_index()
+        
+        # Count occurrences of each country for each maid
+        country_count=merged.groupby('maid').agg({
+            'country': lambda x: {country: len(x[x == country]) for country in x.unique()}
+            }).reset_index()
+        
+        # Create dictionary of country:pings counts for each maid
+        pings_each_country = merged.groupby('maid').apply(
+            lambda x: {country: sum(x[x['country'] == country]['pings']) for country in x['country'].unique()}
+        ).reset_index(name='country_pings')
+        
+        # Get first and last seen timestamps for each maid
+        maid_first_last=merged.groupby('maid').agg({
+            "first_seen":'min',
+            "last_seen":'max'
+        }).reset_index()
+        
+        # Select columns to keep
         merged = merged[['maid', 'geohash', 'category', 'confidence', 'country', 'lat', 'lon', 'first_seen', 'last_seen', 'est_duration',
-               'total_visits', 'unique_days', 'evidence_score',
-               'total_ping', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
+               'pings', 'unique_days', 'evidence_score','fluxB', 'fluxC', 'fluxD', 'fluxE', 'fluxF',
+                'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
                'saturday', 'sunday', 'month_1', 'month_2', 'month_3', 'month_4',
                'month_5', 'month_6', 'month_7', 'month_8', 'month_9', 'month_10',
-               'month_11', 'month_12', 'poi_score', 'poi_info',
-               'home', 'work', 'leisure', 'path']]
+               'month_11', 'month_12', 'hour_0', 'hour_1', 'hour_2', 'hour_3', 
+               'hour_4', 'hour_5', 'hour_6', 'hour_7', 'hour_8', 'hour_9', 
+               'hour_10', 'hour_11', 'hour_12', 'hour_13', 'hour_14', 'hour_15', 
+               'hour_16', 'hour_17', 'hour_18', 'hour_19', 'hour_20', 'hour_21', 
+               'hour_22', 'hour_23', 'poi_score', 'poi_info',
+               'home', 'work', 'leisure', 'path','maid_total_pings']]
+        
+        # Merge all dataframes together
+        merged = pd.merge(merged, maid_flux, on='maid', how='left', suffixes=('', '_maid'))
+        merged = pd.merge(merged, country_count, on='maid', how='left', suffixes=('', '_maid'))
+        merged = pd.merge(merged, pings_each_country, on='maid', how='left', suffixes=('', '_maid'))
+        merged = pd.merge(merged, maid_first_last, on='maid', how='left', suffixes=('', '_maid'))
+        
+        # Rename columns with _maid suffix to maid_ prefix
+        rename_dict = {
+            'fluxB_maid': 'maid_fluxB',
+            'fluxC_maid': 'maid_fluxC',
+            'fluxD_maid': 'maid_fluxD',
+            'fluxE_maid': 'maid_fluxE',
+            'fluxF_maid': 'maid_fluxF',
+            'country_maid': 'maid_countries',
+            'first_seen_maid': 'maid_first_seen',
+            'last_seen_maid': 'maid_last_seen',
+            "country_pings": "maid_countries_pings"
+        }
+        
+        merged = merged.rename(columns=rename_dict)
         
         # Filter by category
         print(f"Filtering data by category for batch {batch_id}...")
@@ -106,8 +156,8 @@ def main():
     output_dir = os.environ.get('OUTPUT_DIR', './data/processed')
     
     # Get all files
-    files = glob.glob(f'{output_dir}/*.pkl')[:100000]
-    batch_size = 1000
+    files = glob.glob(f'{output_dir}/*.pkl')
+    batch_size = 10000
     file_batches = [files[i:i+batch_size] for i in range(0, len(files), batch_size)]
 
     # Calculate total number of batches

@@ -2,9 +2,19 @@
   "home": [
     "addr:housenumber",
     "residential",
-    "building"
+    "neighbourhood",
+    "quarter",
+    "suburb",
+    "village",
+    "building",
+    "place"
   ],
   "work": [
+    "building",
+    "place",
+    "industrial",
+    "commercial",
+    "aeroway",
     "office",
     "opening_hours",
     "internet_access",
@@ -12,11 +22,17 @@
     "brand",
     "brand:fr",
     "brand:wikidata",
-    "brand:wikipedia"
+    "brand:wikipedia",
+    "works",
+    "dam",
+    "breakwater",
+    "name"
   ],
   "leisure": [
+    "building",
     "leisure",
     "tourism",
+    "place",
     "education",
     "sport",
     "shop",
@@ -30,7 +46,13 @@
     "drive_through",
     "takeaway",
     "natural",
-    "internet_access"
+    "internet_access",
+    "phone",
+    "square",
+    "recreation_ground",
+    "village_green",
+    "historic",
+    "name"
   ],
   "path": [
     "aeroway",
@@ -52,6 +74,8 @@
     "bridge",
     "lit",
     "smoothness",
-    "highway"
+    "highway",
+    "internet_access",
+    "phone"
   ]
 }

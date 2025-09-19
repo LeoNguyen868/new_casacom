@@ -69,7 +69,7 @@ def process_maid_data(maid_data, output_dir):
         
         # Convert pandas DataFrame to numpy array to avoid serialization issues
         # Get rows containing geohash, timestamp, latitude, and longitude
-        rows = prepared_data[['geohash', 'timestamp', 'latitude', 'longitude']].values.tolist()
+        rows = prepared_data[['geohash', 'timestamp', 'latitude', 'longitude', 'flux']].values.tolist()
         
         # Create store for this maid
         store = EvidenceStore()
@@ -85,22 +85,27 @@ def process_maid_data(maid_data, output_dir):
         # Prepare timestamp data and coordinates - group by geohash
         setin: Dict[str, List[str]] = {}
         coordinates: Dict[str, Tuple[float, float]] = {}
+        flux_values: Dict[str, List[str]] = {}
         
-        # Process coordinates first
-        for gh, ts, lat, lon in rows:
+        # Process coordinates and flux first
+        for gh, ts, lat, lon, flux in rows:
             if gh not in coordinates:
                 coordinates[gh] = (lat, lon)
+                flux_values[gh] = [flux] if flux is not None else []
             else:
                 # Average the coordinates if we have multiple points
                 current_lat, current_lon = coordinates[gh]
                 coordinates[gh] = ((current_lat + lat) / 2, (current_lon + lon) / 2)
+                # Collect flux values
+                if flux is not None:
+                    flux_values.setdefault(gh, []).append(flux)
         
         # Process timestamps separately
-        for gh, ts, _, _ in rows:
+        for gh, ts, _, _, _ in rows:
             setin.setdefault(gh, []).append(ts)
         
-        # Update store with timestamp data and coordinates
-        store.update(setin, coordinates)
+        # Update store with timestamp data, coordinates, and flux values
+        store.update(setin, coordinates, flux_values)
         
         # Save store to pickle file
         try:
@@ -192,9 +197,8 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
         # Query data directly with just country='MAR' filter
         print(f"Querying data filter for {date_folder}...")
         data = conn.execute("""
-            SELECT DISTINCT ON (latitude, longitude) maid, timestamp, country, latitude, longitude 
+            SELECT DISTINCT ON (latitude, longitude) maid, timestamp, country, latitude, longitude, flux 
             FROM read_parquet(?)
-            ORDER BY maid, timestamp
         """, [parquet_files]).df()
         
         print(f"Loaded {len(data)} total rows from {date_folder}")
@@ -278,7 +282,7 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
             return pgh.encode(latitude=lat, longitude=lon, precision=precision)
         
         # Apply encoding in batches to reduce memory usage
-        batch_size = 100000
+        batch_size = 1000000
         total_rows = len(cleaned_data)
         geohashes = []
         

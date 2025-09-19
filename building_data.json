@@ -19,10 +19,12 @@
         "tree_house",
         "trullo",
         "allotment_house",
-        "yes"
+        "yes",
+        "garage",
+        "shed",
+        "hut","neighbourhood", "suburb", "quarter", "village"
     ],
     "work": [
-        "yes",
         "commercial",
         "industrial",
         "kiosk",
@@ -66,10 +68,16 @@
         "silo",
         "guardhouse",
         "military",
-        "outbuilding"
+        "outbuilding",
+        "yes",
+        "farm",
+        "construction",
+        "container",
+        "works",
+        "dam",
+        "breakwater"
     ],
     "leisure": [
-        "yes",
         "hotel",
         "religious",
         "cathedral",
@@ -108,6 +116,17 @@
         "tent",
         "tower",
         "triumphal_arch",
-        "windmill"
+        "windmill",
+        "yes",
+        "farm",
+        "museum",
+        "university",
+        "school",
+        "public",
+        "dormitory",
+        "square",
+        "historic",
+        "citywalls",
+        "village_green"
     ]
 }

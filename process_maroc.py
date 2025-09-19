@@ -307,7 +307,7 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
         if gh_workers_env and gh_workers_env > 0:
             gh_workers = min(gh_workers_env, cpu_count)
         else:
-            gh_workers = max(1, min(cpu_count, 48))
+            gh_workers = max(1, min(cpu_count, 96))
         try:
             gh_chunksize = int(os.environ.get('GEOHASH_MAP_CHUNKSIZE', '10'))
         except Exception:
@@ -360,7 +360,7 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
             num_processes = min(len(maid_data_list), max_workers_env)
         else:
             # Default to a conservative fraction to avoid I/O contention
-            num_processes = min(len(maid_data_list), max(1, min(cpu_count, 48)))
+            num_processes = min(len(maid_data_list), max(1, min(cpu_count, 96)))
 
         # Chunksize for executor.map to reduce overhead
         try:

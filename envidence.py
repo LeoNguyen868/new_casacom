@@ -3,6 +3,9 @@ import datetime as dt
 import math
 import pickle
 import gzip
+import os
+import time
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Union, Optional, Tuple
 import pandas as pd
@@ -169,7 +172,7 @@ class EvidenceStore:
             c['est_duration'] = total_duration
 
     def save_to_pickle(self, filepath: str, compress: bool = False) -> None:
-        """Save EvidenceStore to pickle format for fast I/O
+        """Save EvidenceStore to pickle format with atomic write
         
         Args:
             filepath: Path to save the pickle file
@@ -186,66 +189,109 @@ class EvidenceStore:
             # Ensure directory exists
             Path(filepath).parent.mkdir(parents=True, exist_ok=True)
             
+            # Determine final filepath with proper extension
             if compress:
-                # Add .gz extension if not present
                 if not filepath.endswith('.gz'):
                     filepath += '.gz'
-                    
-                with gzip.open(filepath, 'wb', compresslevel=9) as f:
-                    pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
             else:
-                # Add .pkl extension if not present and no extension exists
                 if not any(filepath.endswith(ext) for ext in ['.pkl', '.pickle']):
                     filepath += '.pkl'
-                    
-                with open(filepath, 'wb') as f:
-                    pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-                    
             
-        except Exception as e:
+            # Atomic write: write to temp file first, then atomically replace
+            temp_dir = os.path.dirname(filepath)
+            with tempfile.NamedTemporaryFile(mode='wb', dir=temp_dir, delete=False, suffix='.tmp') as temp_file:
+                temp_path = temp_file.name
+                
+                try:
+                    if compress:
+                        with gzip.open(temp_file, 'wb', compresslevel=9) as f:
+                            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    else:
+                        pickle.dump(data, temp_file, protocol=pickle.HIGHEST_PROTOCOL)
+                    
+                    # Ensure data is written to disk
+                    temp_file.flush()
+                    os.fsync(temp_file.fileno())
+                    
+                except Exception:
+                    # Clean up temp file on error
+                    try:
+                        os.unlink(temp_path)
+                    except OSError:
+                        pass
+                    raise
+                
+                # Atomically replace target file
+                os.replace(temp_path, filepath)
+                    
+        except Exception:
             raise
     
-    def load_from_pickle(self, filepath: str) -> None:
-        """Load EvidenceStore from pickle format
+    def load_from_pickle(self, filepath: str, max_retries: int = 3) -> None:
+        """Load EvidenceStore from pickle format with retry on transient errors
         
         Args:
             filepath: Path to the pickle file
+            max_retries: Maximum number of retry attempts for transient errors
         """
-        try:
-            # Auto-detect compression based on file extension
-            if filepath.endswith('.gz'):
-                with gzip.open(filepath, 'rb') as f:
-                    data = pickle.load(f)
-            elif any(filepath.endswith(ext) for ext in ['.pkl', '.pickle']):
-                with open(filepath, 'rb') as f:
-                    data = pickle.load(f)
-            else:
-                # Try uncompressed first, fallback to compressed
-                try:
-                    with open(filepath, 'rb') as f:
-                        data = pickle.load(f)
-                except (pickle.UnpicklingError, UnicodeDecodeError):
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # Auto-detect compression based on file extension
+                if filepath.endswith('.gz'):
                     with gzip.open(filepath, 'rb') as f:
                         data = pickle.load(f)
-            
-            # Load store data
-            if 'store' in data:
-                self.store = data['store']
-            else:
-                # Legacy format support (direct store)
-                self.store = data
+                elif any(filepath.endswith(ext) for ext in ['.pkl', '.pickle']):
+                    with open(filepath, 'rb') as f:
+                        data = pickle.load(f)
+                else:
+                    # Try uncompressed first, fallback to compressed
+                    try:
+                        with open(filepath, 'rb') as f:
+                            data = pickle.load(f)
+                    except (pickle.UnpicklingError, UnicodeDecodeError):
+                        with gzip.open(filepath, 'rb') as f:
+                            data = pickle.load(f)
                 
-            # Initialize flux_counts for older data formats
-            for gh, c in self.store.items():
-                if 'flux_counts' not in c:
-                    c['flux_counts'] = {'B': 0, 'C': 0, 'D': 0, 'E': 0, 'F': 0}
+                # Load store data
+                if 'store' in data:
+                    self.store = data['store']
+                else:
+                    # Legacy format support (direct store)
+                    self.store = data
+                    
+                # Initialize flux_counts for older data formats
+                for gh, c in self.store.items():
+                    if 'flux_counts' not in c:
+                        c['flux_counts'] = {'B': 0, 'C': 0, 'D': 0, 'E': 0, 'F': 0}
                 
-        except FileNotFoundError:
-            print(f"File not found: {filepath}")
-            raise
-        except Exception as e:
-            print(f"Error loading EvidenceStore from {filepath}: {e}")
-            raise
+                # Success - return
+                return
+                
+            except FileNotFoundError:
+                print(f"File not found: {filepath}")
+                raise
+            except (EOFError, pickle.UnpicklingError, OSError) as e:
+                last_exception = e
+                if attempt < max_retries:
+                    # Transient error - retry with exponential backoff
+                    sleep_time = 0.1 * (2 ** attempt)  # 0.1s, 0.2s, 0.4s
+                    print(f"Transient error loading {filepath} (attempt {attempt + 1}/{max_retries + 1}): {e}. Retrying in {sleep_time}s...")
+                    time.sleep(sleep_time)
+                    continue
+                else:
+                    # Max retries exceeded
+                    print(f"Error loading EvidenceStore from {filepath} after {max_retries + 1} attempts: {e}")
+                    raise
+            except Exception as e:
+                # Non-transient error - don't retry
+                print(f"Error loading EvidenceStore from {filepath}: {e}")
+                raise
+        
+        # Should not reach here, but just in case
+        if last_exception:
+            raise last_exception
     
     def save(self, filepath: str, compress: bool = False) -> None:
         """Convenience method to save the store

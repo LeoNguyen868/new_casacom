@@ -157,7 +157,7 @@ def main():
     
     # Get all files
     files = glob.glob(f'{output_dir}/*.pkl')
-    batch_size = 10000
+    batch_size = 100000
     file_batches = [files[i:i+batch_size] for i in range(0, len(files), batch_size)]
 
     # Calculate total number of batches

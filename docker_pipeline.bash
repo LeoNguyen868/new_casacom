@@ -16,7 +16,9 @@ if [ $# -eq 0 ]; then
         "2025-08-05"
     )
 else
-    DATES=("$@")
+    # Use provided arguments for both DATES1 and DATES2
+    DATES1=("$@")
+    DATES2=("$@")
 fi
 
 # Process DATES1 first
@@ -40,7 +42,7 @@ for DATE in "${DATES1[@]}"; do
     fi
 
     echo "Starting data processing for $DATE..."
-    python3 process_maroc.py --raw-data "$DATA_RAW_PATH1"
+    python3 process_maroc.py --start-date "$DATE" --end-date "$DATE" --raw-data "$DATA_RAW_PATH1"
 
     # Check if processing was successful
     if [ $? -eq 0 ]; then
@@ -75,7 +77,7 @@ for DATE in "${DATES2[@]}"; do
 
     # Run download_maroc.py for a specific date
     echo "Starting data download for $DATE..."
-    python3 download_maroc.py --local-dir "$DATA_RAW_PATH2"
+    python3 download_maroc.py --start-date "$DATE" --end-date "$DATE" --local-dir "$DATA_RAW_PATH2" --bucket s3://home-work/hw/project2_rt
 
     # Check if download was successful
     if [ $? -eq 0 ]; then

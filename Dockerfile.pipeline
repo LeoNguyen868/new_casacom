@@ -56,8 +56,8 @@ COPY aws_config.txt /root/.aws/config
 
 # Set environment variables
 ENV PATH="/app:${PATH}"
-ENV DATA_RAW_PATH1="/app/data/raw_rt"
-ENV DATA_RAW_PATH2="/app/data/raw"
+ENV DATA_RAW_PATH1="/app/data/raw"
+ENV DATA_RAW_PATH2="/app/data/raw_rt"
 ENV OUTPUT_DIR="/app/data/processed"
 ENV POSTGRES_DB="osm"
 ENV POSTGRES_USER="postgres"

@@ -160,7 +160,7 @@ export PGPASSWORD=postgres
 
 # Always ensure PostgreSQL is initialized and running, and OSM DB is prepared
 echo "Ensuring PostgreSQL and OSM database are ready..."
-/app/setup_osm2pgsql_docker.bash
+# /app/setup_osm2pgsql_docker.bash
 
 # Process DATES1 first
 for DATE in "${DATES1[@]}"; do
@@ -172,7 +172,7 @@ for DATE in "${DATES1[@]}"; do
 
     # Run download_maroc.py for a specific date
     echo "Starting data download for $DATE..."
-    python download_maroc.py --start-date "$DATE" --end-date "$DATE" --local-dir "$DATA_RAW_PATH1"
+    python download_maroc.py --start-date "$DATE" --end-date "$DATE" --local-dir "$DATA_RAW_PATH1" --bucket s3://home-work/hw/project2
 
     # Check if download was successful
     if [ $? -eq 0 ]; then

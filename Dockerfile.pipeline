@@ -48,7 +48,7 @@ COPY entrypoint.sh /app/
 COPY *.pbf /app/
 
 # Create directories
-RUN mkdir -p /app/data/raw /app/data/processed /app/result
+RUN mkdir -p /app/data/raw /app/data/raw_rt /app/data/processed /app/result
 
 # Setup AWS configuration
 RUN mkdir -p /root/.aws

@@ -10,7 +10,8 @@ services:
       - casacom_result:/app/result
     environment:
       - AWS_PROFILE=hw  # Default profile, can be overridden
-      - DATA_RAW_PATH=/app/data/raw_rt
+      - DATA_RAW_PATH1=/app/data/raw
+      - DATA_RAW_PATH2=/app/data/raw_rt
       - OUTPUT_DIR=/app/data/processed
       - RESULT_DIR=/app/result
       - POSTGRES_DB=osm

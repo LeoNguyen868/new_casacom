@@ -31,7 +31,7 @@ for DATE in "${DATES1[@]}"; do
 
     # Run download_maroc.py for a specific date
     echo "Starting data download for $DATE..."
-    python3 download_maroc.py --start-date "$DATE" --end-date "$DATE" --local-dir "$DATA_RAW_PATH1" --bucket s3://home-work/hw/project2
+    python3 download_maroc.py --start-date "$DATE" --end-date "$DATE" --local-dir ./data/raw/ --bucket s3://home-work/hw/project2
 
     # Check if download was successful
     if [ $? -eq 0 ]; then
@@ -42,7 +42,7 @@ for DATE in "${DATES1[@]}"; do
     fi
 
     echo "Starting data processing for $DATE..."
-    python3 process_maroc.py --start-date "$DATE" --end-date "$DATE" --raw-data "$DATA_RAW_PATH1"
+    python3 process_maroc.py --start-date "$DATE" --end-date "$DATE" --raw-data ./data/raw/
 
     # Check if processing was successful
     if [ $? -eq 0 ]; then
@@ -77,7 +77,7 @@ for DATE in "${DATES2[@]}"; do
 
     # Run download_maroc.py for a specific date
     echo "Starting data download for $DATE..."
-    python3 download_maroc.py --start-date "$DATE" --end-date "$DATE" --local-dir "$DATA_RAW_PATH2" --bucket s3://home-work/hw/project2_rt
+    python3 download_maroc.py --start-date "$DATE" --end-date "$DATE" --local-dir ./data/raw_rt/ --bucket s3://home-work/hw/project2_rt
 
     # Check if download was successful
     if [ $? -eq 0 ]; then
@@ -88,7 +88,7 @@ for DATE in "${DATES2[@]}"; do
     fi
 
     echo "Starting data processing for $DATE..."
-    python3 process_maroc.py --start-date "$DATE" --end-date "$DATE" --raw-data "$DATA_RAW_PATH2"
+    python3 process_maroc.py --start-date "$DATE" --end-date "$DATE" --raw-data ./data/raw_rt/
 
     # Check if processing was successful
     if [ $? -eq 0 ]; then

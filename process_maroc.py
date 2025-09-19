@@ -24,6 +24,14 @@ blacklist_file = os.environ.get('BLACKLIST_FILE', './blacklist_geohash.parquet')
 black_list = pd.read_parquet(blacklist_file).gh7
 
 # Define helper functions
+def encode_geohash_batch(args):
+    """Encode a batch of lat/lon to geohash with given precision.
+    args is a tuple: (lat_list, lon_list, precision)
+    Defined at module level to be picklable by multiprocessing.
+    """
+    lat_list, lon_list, precision = args
+    return [pgh.encode(latitude=lat, longitude=lon, precision=precision) for lat, lon in zip(lat_list, lon_list)]
+
 def clean_maid_dat(maid_dat):
     if len(maid_dat) == 0:
         return maid_dat
@@ -181,6 +189,15 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
         
         # Create DuckDB connection for this date
         conn = duckdb.connect()
+        # Configure DuckDB threads from environment or default to CPU count
+        try:
+            duckdb_threads = int(os.environ.get('DUCKDB_THREADS', str(mp.cpu_count())))
+        except Exception:
+            duckdb_threads = mp.cpu_count()
+        try:
+            conn.execute(f"PRAGMA threads={duckdb_threads}")
+        except Exception:
+            pass
         
         # Get all parquet files for this specific date folder
         folder_path = os.path.join(raw_data_base, date_folder)
@@ -272,31 +289,54 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
             cleaned_data = cleaned_data[valid_coords]
             print(f"Continuing with {len(cleaned_data)} valid records...")
         
-        # Use vectorized operations instead of apply for better performance
-        print("Encoding geohashes with vectorized operations...")
-        from functools import partial
-        import numpy as np
-        
-        # Vectorize the geohash encoding function
-        def encode_geohash_bulk(lat, lon, precision=7):
-            return pgh.encode(latitude=lat, longitude=lon, precision=precision)
-        
-        # Apply encoding in batches to reduce memory usage
-        batch_size = 1000000
+        # Parallel geohash encoding with batches across processes
+        print("Encoding geohashes in parallel...")
+        try:
+            gh_precision = int(os.environ.get('GEOHASH_PRECISION', '7'))
+        except Exception:
+            gh_precision = 7
+        try:
+            gh_batch_size = int(os.environ.get('GEOHASH_BATCH_SIZE', '500000'))
+        except Exception:
+            gh_batch_size = 500000
+        try:
+            gh_workers_env = int(os.environ.get('GEOHASH_WORKERS', '0'))
+        except Exception:
+            gh_workers_env = 0
+        cpu_count = mp.cpu_count()
+        if gh_workers_env and gh_workers_env > 0:
+            gh_workers = min(gh_workers_env, cpu_count)
+        else:
+            gh_workers = max(1, min(cpu_count, 48))
+        try:
+            gh_chunksize = int(os.environ.get('GEOHASH_MAP_CHUNKSIZE', '10'))
+        except Exception:
+            gh_chunksize = 10
+
         total_rows = len(cleaned_data)
         geohashes = []
-        
-        for i in range(0, total_rows, batch_size):
-            batch_end = min(i + batch_size, total_rows)
-            print(f"Processing batch {i//batch_size + 1}/{(total_rows-1)//batch_size + 1} ({batch_end - i} rows)")
-            
-            # Apply encoding to this batch
-            batch_lat = cleaned_data['latitude'].iloc[i:batch_end].values
-            batch_lon = cleaned_data['longitude'].iloc[i:batch_end].values
-            
-            # Using list comprehension for better performance than apply
-            batch_geohashes = [encode_geohash_bulk(lat, lon) for lat, lon in zip(batch_lat, batch_lon)]
-            geohashes.extend(batch_geohashes)
+
+        # Prepare batch tasks
+        batch_args = []
+        for i in range(0, total_rows, gh_batch_size):
+            batch_end = min(i + gh_batch_size, total_rows)
+            print(f"Geohash batch {i//gh_batch_size + 1}/{(total_rows-1)//gh_batch_size + 1} ({batch_end - i} rows)")
+            # Slice as Python lists for cheaper pickling
+            batch_lat = cleaned_data['latitude'].iloc[i:batch_end].tolist()
+            batch_lon = cleaned_data['longitude'].iloc[i:batch_end].tolist()
+            batch_args.append((batch_lat, batch_lon, gh_precision))
+
+        if len(batch_args) == 1:
+            # Single batch: avoid process pool overhead
+            geohashes = encode_geohash_batch(batch_args[0])
+        else:
+            with ProcessPoolExecutor(max_workers=gh_workers) as gh_executor:
+                for result in tqdm(
+                    gh_executor.map(encode_geohash_batch, batch_args, chunksize=gh_chunksize),
+                    total=len(batch_args),
+                    desc=f"Geohash encoding"
+                ):
+                    geohashes.extend(result)
         
         # Add geohashes to dataframe
         cleaned_data['geohash'] = geohashes
@@ -310,16 +350,33 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
         print(f"Found {len(maid_data_list)} unique MAIDs to process in {date_folder}")
         
         # Use ProcessPoolExecutor to process all maids with progress bar
-        # Limit number of processes to avoid memory issues
-        num_processes = min(len(maid_data_list), mp.cpu_count())  # Use CPU count as reference
+        # Limit number of processes to avoid memory issues and allow env override
+        try:
+            max_workers_env = int(os.environ.get('MAX_WORKERS', '0'))
+        except Exception:
+            max_workers_env = 0
+        cpu_count = mp.cpu_count()
+        if max_workers_env and max_workers_env > 0:
+            num_processes = min(len(maid_data_list), max_workers_env)
+        else:
+            # Default to a conservative fraction to avoid I/O contention
+            num_processes = min(len(maid_data_list), max(1, min(cpu_count, 48)))
+
+        # Chunksize for executor.map to reduce overhead
+        try:
+            map_chunksize = int(os.environ.get('MAP_CHUNKSIZE', '100'))
+        except Exception:
+            map_chunksize = 100
         
         # Set output_dir in environment for child processes
         os.environ['PROCESS_OUTPUT_DIR'] = output_dir
             
         with ProcessPoolExecutor(max_workers=num_processes) as executor:
-            results = list(tqdm(executor.map(process_with_output_dir, maid_data_list), 
-                               total=len(maid_data_list), 
-                               desc=f"Processing MAIDs for {date_folder}"))
+            results = list(tqdm(
+                executor.map(process_with_output_dir, maid_data_list, chunksize=map_chunksize), 
+                total=len(maid_data_list), 
+                desc=f"Processing MAIDs for {date_folder}"
+            ))
         
         # Count successful results
         successful_maids = sum(1 for _, success in results if success)

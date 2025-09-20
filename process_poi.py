@@ -286,7 +286,10 @@ def process_maid_data(maid):
     # Calculate combined scores and add to dataframe
     if all_pdf.empty:
         return pd.DataFrame()
-        
+    
+    # Check if poi_score is a float and convert to dict if needed to prevent TypeError
+    all_pdf['poi_score'] = all_pdf['poi_score'].apply(lambda x: {} if isinstance(x, float) else x)
+    
     score_columns = all_pdf.apply(calculate_combined_scores, axis=1)
     final_pdf = pd.concat([all_pdf, score_columns], axis=1)
     final_pdf.reset_index(drop=True, inplace=True)

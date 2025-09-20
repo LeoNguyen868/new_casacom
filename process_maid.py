@@ -1,9 +1,9 @@
 import glob
 import pandas as pd
 import numpy as np
-from process_poi import *
-from process_mrc import *
-from process_country import *
+from process_poi import process_maid_data
+from process_mrc import process_mrc
+from process_country import get_country_from_coordinates
 import gc
 import multiprocessing as mp
 from tqdm import tqdm
@@ -159,7 +159,7 @@ def main():
     
     # Get all files
     files = glob.glob(f'{output_dir}/*.pkl')
-    batch_size = 1000000
+    batch_size = 100000
     file_batches = [files[i:i+batch_size] for i in range(0, len(files), batch_size)]
 
     # Calculate total number of batches

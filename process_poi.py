@@ -232,7 +232,7 @@ def load_maid(maid_file):
 def process_maid_data(maid):
     # Load data for the MAID
     pdf = load_maid(maid)
-    
+    all_pdf = pd.DataFrame()
     # Skip processing if dataframe is empty
     if pdf.empty:
         return pd.DataFrame()
@@ -247,7 +247,6 @@ def process_maid_data(maid):
     is_stationary = (pdf.est_duration >= est_duration) & (pdf.pings >= pings)
     stationary = pdf[is_stationary].reset_index(drop=True)
     movement = pdf[~is_stationary].reset_index(drop=True)
-    
     # Process POI information based on whether we have both stationary and movement data
     if stationary.empty and movement.empty:
         # No data available

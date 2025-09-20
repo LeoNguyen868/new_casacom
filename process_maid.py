@@ -138,7 +138,7 @@ def process_batch(file_batch, batch_id):
         # Save batch results
         print(f"Saving results for batch {batch_id}...")
         path_pdf.to_csv(f'{result_dir}/path_batch_{batch_id}.csv', index=False)
-        merged.to_csv(f'{result_dir}/merged_batch_{batch_id}.csv', index=False)
+        merged.to_csv(f'{result_dir}/path_new_batch_{batch_id}.csv', index=False)
         #  work_pdf.to_csv(f'{result_dir}/work_batch_{batch_id}.csv', index=False)
         # home_pdf.to_csv(f'{result_dir}/home_batch_{batch_id}.csv', index=False)
         # leisure_pdf.to_csv(f'{result_dir}/leisure_batch_{batch_id}.csv', index=False)
@@ -159,7 +159,7 @@ def main():
     
     # Get all files
     files = glob.glob(f'{output_dir}/*.pkl')
-    batch_size = 100000
+    batch_size = 1000000
     file_batches = [files[i:i+batch_size] for i in range(0, len(files), batch_size)]
 
     # Calculate total number of batches

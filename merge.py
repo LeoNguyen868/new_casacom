@@ -11,7 +11,7 @@ def merge_batch_files():
     print("Starting to merge batch files...")
     
     # Define categories to process
-    categories = ['path', 'work', 'home', 'leisure']
+    categories = ['path', 'work', 'home', 'leisure','path_new']
     
     # Get result directory from environment variables or use default
     result_dir = os.environ.get('RESULT_DIR', './result')

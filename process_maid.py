@@ -55,9 +55,9 @@ def process_batch(file_batch, batch_id):
         print(f"Aggregating path data for batch {batch_id}...")
         path_pdf = merged[merged.category=='path'].groupby('maid').agg({
             'coordinate': lambda x: list(x),
-            'unique_days': lambda x: round(x.median()),
-            'pings': lambda x: round(x.median()),
-            'est_duration': lambda x: round(x.median()),
+            'unique_days': 'sum',
+            'pings': 'sum',
+            'est_duration': 'sum',
             'confidence': 'mean',
             'category': 'first',
             'country': lambda x: set(x),
@@ -74,9 +74,9 @@ def process_batch(file_batch, batch_id):
                 'fluxF':'sum'
                 }).reset_index()
         
-        # Count occurrences of each country for each maid
-        country_count=merged.groupby('maid').agg({
-            'country': lambda x: {country: len(x[x == country]) for country in x.unique()}
+        # Count unique countries for each maid
+        country_count = merged.groupby('maid').agg({
+            'country': lambda x: set(x.unique())
             }).reset_index()
         
         # Create dictionary of country:pings counts for each maid
@@ -101,7 +101,7 @@ def process_batch(file_batch, batch_id):
                'hour_10', 'hour_11', 'hour_12', 'hour_13', 'hour_14', 'hour_15', 
                'hour_16', 'hour_17', 'hour_18', 'hour_19', 'hour_20', 'hour_21', 
                'hour_22', 'hour_23', 'poi_score', 'poi_info',
-               'home', 'work', 'leisure', 'path','maid_total_pings']]
+               'home', 'work', 'leisure', 'path','maid_total_pings','cell_info']]
         
         # Merge all dataframes together
         merged = pd.merge(merged, maid_flux, on='maid', how='left', suffixes=('', '_maid'))
@@ -126,9 +126,9 @@ def process_batch(file_batch, batch_id):
         
         # Filter by category
         print(f"Filtering data by category for batch {batch_id}...")
-        work_pdf = merged[merged.category=='work']
-        home_pdf = merged[merged.category=='home']
-        leisure_pdf = merged[merged.category=='leisure']
+        # work_pdf = merged[merged.category=='work']
+        # home_pdf = merged[merged.category=='home']
+        # leisure_pdf = merged[merged.category=='leisure']
         path_pdf.reset_index(inplace=True)
         
         # Create result directory if it doesn't exist
@@ -138,14 +138,16 @@ def process_batch(file_batch, batch_id):
         # Save batch results
         print(f"Saving results for batch {batch_id}...")
         path_pdf.to_csv(f'{result_dir}/path_batch_{batch_id}.csv', index=False)
-        work_pdf.to_csv(f'{result_dir}/work_batch_{batch_id}.csv', index=False)
-        home_pdf.to_csv(f'{result_dir}/home_batch_{batch_id}.csv', index=False)
-        leisure_pdf.to_csv(f'{result_dir}/leisure_batch_{batch_id}.csv', index=False)
+        merged.to_csv(f'{result_dir}/merged_batch_{batch_id}.csv', index=False)
+        #  work_pdf.to_csv(f'{result_dir}/work_batch_{batch_id}.csv', index=False)
+        # home_pdf.to_csv(f'{result_dir}/home_batch_{batch_id}.csv', index=False)
+        # leisure_pdf.to_csv(f'{result_dir}/leisure_batch_{batch_id}.csv', index=False)
         
         print(f"Batch {batch_id} processing complete!")
         
         # Free memory
-        del merged, path_pdf, work_pdf, home_pdf, leisure_pdf
+        # del merged, path_pdf, work_pdf, home_pdf, leisure_pdf
+        del merged, path_pdf
         gc.collect()
         
         return True

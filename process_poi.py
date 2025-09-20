@@ -264,18 +264,19 @@ def process_maid_data(maid):
     
     elif movement.empty:
         # Only stationary data available
-        stationary[['poi_score', 'poi_info', 'poi_coordinates']] = stationary.apply(
-            lambda row: pd.Series(get_poi_category(row['lat'], row['lon'], v_mapping, k_mapping,building_mapping)),
-            axis=1
-        )
-        all_pdf = stationary
+        # stationary[['poi_score', 'poi_info', 'poi_coordinates']] = stationary.apply(
+        #     lambda row: pd.Series(get_poi_category(row['lat'], row['lon'], v_mapping, k_mapping,building_mapping)),
+        #     axis=1
+        # )
+        # all_pdf = stationary
+        pass
     
     else:
-        # Both stationary and movement data available
-        stationary[['poi_score', 'poi_info', 'poi_coordinates']] = stationary.apply(
-            lambda row: pd.Series(get_poi_category(row['lat'], row['lon'], v_mapping, k_mapping,building_mapping)),
-            axis=1
-        )
+        # # Both stationary and movement data available
+        # stationary[['poi_score', 'poi_info', 'poi_coordinates']] = stationary.apply(
+        #     lambda row: pd.Series(get_poi_category(row['lat'], row['lon'], v_mapping, k_mapping,building_mapping)),
+        #     axis=1
+        # )
         movement[['poi_score', 'poi_info', 'poi_coordinates']] = movement.apply(
             lambda row: pd.Series(get_road(row['lat'], row['lon'])),
             axis=1

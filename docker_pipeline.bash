@@ -339,4 +339,12 @@ python3 merge.py
 echo "Completed pipeline for merging results"
 echo "----------------------------------------"
 
+echo "Compressing results..."
+cd result/
+tar -czf ../results.tar.gz .
+cd ..
+echo "Results compressed to results.tar.gz"
+echo "----------------------------------------"
+
+
 echo "Pipeline processing completed."

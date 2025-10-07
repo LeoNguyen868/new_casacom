@@ -39,7 +39,7 @@ if [ -n "$PG_VERSION_DETECTED" ]; then
   # Ensure 'osm' database exists; if not, create and import
   if ! su - postgres -c "psql -lqt | cut -d '|' -f 1 | grep -qw osm"; then
     echo "'osm' database not found. Creating and importing OSM data..."
-    su - postgres -c "createdb --encoding=UTF8 --owner=postgres osm"
+    su - postgres -c "createdb --template=template0 --encoding=UTF8 --owner=postgres osm"
     su - postgres -c "psql -d osm -c 'CREATE EXTENSION IF NOT EXISTS postgis;'"
     su - postgres -c "psql -d osm -c 'CREATE EXTENSION IF NOT EXISTS hstore;'"
     if [ -f "/app/morocco-latest.osm.pbf" ]; then

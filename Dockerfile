@@ -44,7 +44,6 @@ COPY *.py /app/
 COPY *.json /app/
 COPY *.parquet /app/
 COPY *.bash /app/
-COPY entrypoint.sh /app/
 COPY *.pbf /app/
 COPY *.feather /app/
 # Create directories
@@ -65,8 +64,6 @@ ENV POSTGRES_PASSWORD="postgres"
 ENV POSTGRES_HOST="127.0.0.1"
 ENV POSTGRES_PORT="5432"
 
-# Make scripts executable
-RUN chmod +x /app/*.bash /app/entrypoint.sh
 
-# Use entrypoint script
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Make scripts executable
+RUN chmod +x /app/*.bash

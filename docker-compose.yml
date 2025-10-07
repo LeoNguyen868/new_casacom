@@ -4,7 +4,7 @@ services:
   casacom-pipeline:
     build:
       context: .
-      dockerfile: Dockerfile.pipeline
+      dockerfile: Dockerfile
     volumes:
       - casacom_data:/app/data
       - casacom_result:/app/result

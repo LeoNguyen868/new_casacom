@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Download Morocco OSM data if not already present
 if [ ! -f ./morocco-latest.osm.pbf ]; then
@@ -43,30 +44,38 @@ if [ ! -d "/var/lib/postgresql/$PG_VERSION/main" ]; then
     chown postgres:postgres /var/lib/postgresql/$PG_VERSION
     su - postgres -c "/usr/lib/postgresql/$PG_VERSION/bin/initdb -D /var/lib/postgresql/$PG_VERSION/main"
     
-    # Configure PostgreSQL for password authentication
-    echo "host all all 127.0.0.1/32 md5" >> /var/lib/postgresql/$PG_VERSION/main/pg_hba.conf
-    echo "local all all md5" >> /var/lib/postgresql/$PG_VERSION/main/pg_hba.conf
+    # Configure PostgreSQL for local trust authentication (no password required)
+    echo "local all all trust" >> /var/lib/postgresql/$PG_VERSION/main/pg_hba.conf
+    echo "host all all 127.0.0.1/32 trust" >> /var/lib/postgresql/$PG_VERSION/main/pg_hba.conf
 fi
 
-# Start PostgreSQL service
+# Start PostgreSQL service and wait until ready
 echo "Starting PostgreSQL service..."
-su - postgres -c "/usr/lib/postgresql/$PG_VERSION/bin/pg_ctl -D /var/lib/postgresql/$PG_VERSION/main start"
-sleep 3  # Give PostgreSQL a moment to start
+su - postgres -c "/usr/lib/postgresql/$PG_VERSION/bin/pg_ctl -D /var/lib/postgresql/$PG_VERSION/main -w -t 60 start"
 
-# Set postgres user password
-echo "Setting postgres user password..."
-su - postgres -c "psql -c \"ALTER USER postgres WITH PASSWORD 'postgres';\""
+# Ensure log directory exists and configure minimal logging to avoid console spam
+# Reset any previous log suppression so defaults apply
+su - postgres -c "psql -v ON_ERROR_STOP=1 -d postgres -c \"ALTER SYSTEM RESET log_min_messages;\""
+su - postgres -c "psql -v ON_ERROR_STOP=1 -d postgres -c \"ALTER SYSTEM RESET client_min_messages;\""
+su - postgres -c "psql -v ON_ERROR_STOP=1 -d postgres -c \"ALTER SYSTEM RESET log_checkpoints;\""
+su - postgres -c "psql -v ON_ERROR_STOP=1 -d postgres -c \"ALTER SYSTEM RESET log_connections;\""
+su - postgres -c "psql -v ON_ERROR_STOP=1 -d postgres -c \"ALTER SYSTEM RESET log_disconnections;\""
+su - postgres -c "psql -v ON_ERROR_STOP=1 -d postgres -c \"ALTER SYSTEM RESET log_destination;\""
+su - postgres -c "psql -v ON_ERROR_STOP=1 -d postgres -c \"ALTER SYSTEM RESET logging_collector;\""
+su - postgres -c "psql -d postgres -c 'SELECT pg_reload_conf();'"
 
-# Check if osm database exists and drop it if it does
+# No password setup needed when using 'trust' authentication
+
+# Check if osm database exists and skip import if it does
 echo "Checking for existing OSM database..."
 if su - postgres -c "psql -lqt | cut -d \| -f 1 | grep -qw osm"; then
-    echo "Dropping existing osm database..."
-    su - postgres -c "dropdb osm"
+    echo "OSM database already exists. Skipping import."
+    exit 0
 fi
 
 # Create OSM database with PostGIS extensions
 echo "Creating osm database..."
-su - postgres -c "createdb --encoding=UTF8 --owner=postgres osm"
+su - postgres -c "createdb --template=template0 --encoding=UTF8 --owner=postgres osm"
 su - postgres -c "psql -d osm -c 'CREATE EXTENSION IF NOT EXISTS postgis;'"
 su - postgres -c "psql -d osm -c 'CREATE EXTENSION IF NOT EXISTS hstore;'"
 
@@ -74,4 +83,4 @@ su - postgres -c "psql -d osm -c 'CREATE EXTENSION IF NOT EXISTS hstore;'"
 echo "Importing OSM data with osm2pgsql..."
 su - postgres -c "osm2pgsql -d osm -U postgres --create --slim --cache 4000 --number-processes 8 /app/morocco-latest.osm.pbf"
 
-echo "OSM data import completed successfully!"
+echo "complete"

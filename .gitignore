@@ -9,5 +9,3 @@ __pycache__/
 *.tar
 *.zip
 map.json
-*.feather
-*.parquet

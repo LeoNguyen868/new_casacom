@@ -225,15 +225,15 @@ def load_maid(maid_file):
             entry[f'hour_{hour}'] = d[i]['hourly_hist'][hour]
             
         geo.append(entry)
-    return pd.DataFrame(geo)    
+    return pd.DataFrame(geo), store.maid    
 
 def process_maid_data(maid):
     # Load data for the MAID
-    pdf = load_maid(maid)
+    pdf, maid_id = load_maid(maid)
     all_pdf = pd.DataFrame()
     # Skip processing if dataframe is empty
     if pdf.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(), None
     
     # Calculate quantiles for filtering stationary vs movement points
     q_base = 0.9
@@ -248,7 +248,7 @@ def process_maid_data(maid):
     # Process POI information based on whether we have both stationary and movement data
     if stationary.empty and movement.empty:
         # No data available
-        return pd.DataFrame()
+        return pd.DataFrame(), None
     
     elif stationary.empty:
         # Only movement data available
@@ -283,7 +283,7 @@ def process_maid_data(maid):
     
     # Calculate combined scores and add to dataframe
     if all_pdf.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(), None
     
     # Check if poi_score is a float and convert to dict if needed to prevent TypeError
     all_pdf['poi_score'] = all_pdf['poi_score'].apply(lambda x: {} if isinstance(x, float) else x)
@@ -292,4 +292,4 @@ def process_maid_data(maid):
     final_pdf = pd.concat([all_pdf, score_columns], axis=1)
     final_pdf.reset_index(drop=True, inplace=True)
     
-    return final_pdf
+    return final_pdf, maid_id

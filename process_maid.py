@@ -10,9 +10,11 @@ from tqdm import tqdm
 import os
 
 def process_single_file(file):
-    res = process_maid_data(file)
-    res['maid'] = file.split('/')[-1].split('.')[0]
-    return res if not res.empty else None
+    res, maid_id = process_maid_data(file)
+    if res.empty or maid_id is None:
+        return None
+    res['maid'] = maid_id
+    return res
 
 def process_batch(file_batch, batch_id):
     batch_results = []
@@ -126,9 +128,9 @@ def process_batch(file_batch, batch_id):
         
         # Filter by category
         print(f"Filtering data by category for batch {batch_id}...")
-        # work_pdf = merged[merged.category=='work']
-        # home_pdf = merged[merged.category=='home']
-        # leisure_pdf = merged[merged.category=='leisure']
+        work_pdf = merged[merged.category=='work']
+        home_pdf = merged[merged.category=='home']
+        leisure_pdf = merged[merged.category=='leisure']
         path_pdf.reset_index(inplace=True)
         
         # Create result directory if it doesn't exist
@@ -139,15 +141,14 @@ def process_batch(file_batch, batch_id):
         print(f"Saving results for batch {batch_id}...")
         path_pdf.to_csv(f'{result_dir}/path_batch_{batch_id}.csv', index=False)
         merged.to_csv(f'{result_dir}/path_new_batch_{batch_id}.csv', index=False)
-        #  work_pdf.to_csv(f'{result_dir}/work_batch_{batch_id}.csv', index=False)
-        # home_pdf.to_csv(f'{result_dir}/home_batch_{batch_id}.csv', index=False)
-        # leisure_pdf.to_csv(f'{result_dir}/leisure_batch_{batch_id}.csv', index=False)
+        work_pdf.to_csv(f'{result_dir}/work_batch_{batch_id}.csv', index=False)
+        home_pdf.to_csv(f'{result_dir}/home_batch_{batch_id}.csv', index=False)
+        leisure_pdf.to_csv(f'{result_dir}/leisure_batch_{batch_id}.csv', index=False)
         
         print(f"Batch {batch_id} processing complete!")
         
         # Free memory
-        # del merged, path_pdf, work_pdf, home_pdf, leisure_pdf
-        del merged, path_pdf
+        del merged, path_pdf, work_pdf, home_pdf, leisure_pdf
         gc.collect()
         
         return True

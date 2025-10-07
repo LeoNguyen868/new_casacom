@@ -18,7 +18,7 @@ services:
       - POSTGRES_DB=osm
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - POSTGRES_HOST=localhost
+      - POSTGRES_HOST=127.0.0.1
       - POSTGRES_PORT=5432
     tty: true  # Keeps container running with a TTY
     stdin_open: true  # Keep stdin open

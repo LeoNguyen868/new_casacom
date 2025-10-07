@@ -8,6 +8,7 @@ services:
     volumes:
       - casacom_data:/app/data
       - casacom_result:/app/result
+      - pgdata:/var/lib/postgresql
     environment:
       - AWS_PROFILE=hw  # Default profile, can be overridden
       - DATA_RAW_PATH1=/app/data/raw
@@ -27,3 +28,5 @@ volumes:
     # Using a named volume for data
   casacom_result:
     # Using a named volume for results
+  pgdata:
+    # Named volume to persist PostgreSQL cluster inside container

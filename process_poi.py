@@ -166,8 +166,6 @@ def calculate_combined_scores(row):
 
 import numpy as np
 from envidence import *
-import timezonefinder as tf
-tz=tf.TimezoneFinder()
 
 def load_maid(maid_file):
     store=EvidenceStore()

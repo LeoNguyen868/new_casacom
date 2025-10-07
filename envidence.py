@@ -15,13 +15,28 @@ from collections import defaultdict
 import json
 
 conn=duckdb.connect()
+conn.execute("SET timezone='UTC'")
 
 def _to_dt(x: Union[str, dt.datetime]) -> dt.datetime:
-    return dt.datetime.fromisoformat(x) if isinstance(x, str) else x
+    """Convert input to datetime object, ensuring UTC timezone consistency"""
+    if isinstance(x, str):
+        # Parse string and assume it's in UTC if no timezone info
+        dt_obj = dt.datetime.fromisoformat(x.replace('Z', '+00:00'))
+        if dt_obj.tzinfo is None:
+            dt_obj = dt_obj.replace(tzinfo=dt.timezone.utc)
+        return dt_obj
+    elif isinstance(x, dt.datetime):
+        # Ensure datetime has UTC timezone
+        if x.tzinfo is None:
+            return x.replace(tzinfo=dt.timezone.utc)
+        return x
+    else:
+        raise ValueError(f"Unsupported type for datetime conversion: {type(x)}")
 
 class EvidenceStore:
-    def __init__(self):
+    def __init__(self, maid: str = None):
         self.store: Dict[str, dict] = {}
+        self.maid: str = maid  # Add MAID attribute
 
     def _init(self):
         return {
@@ -183,7 +198,8 @@ class EvidenceStore:
             data = {
                 'store': self.store,
                 'version': '1.0',  # For future compatibility
-                'created_at': dt.datetime.now().isoformat()
+                'created_at': dt.datetime.now().isoformat(),
+                'maid': self.maid  # Add MAID to saved data
             }
             
             # Ensure directory exists
@@ -260,7 +276,10 @@ class EvidenceStore:
                 else:
                     # Legacy format support (direct store)
                     self.store = data
-                    
+
+                # Load MAID if available
+                self.maid = data.get('maid', None)
+
                 # Initialize flux_counts for older data formats
                 for gh, c in self.store.items():
                     if 'flux_counts' not in c:

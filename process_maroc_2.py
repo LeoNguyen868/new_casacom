@@ -3,17 +3,17 @@ import pandas as pd
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 from tqdm import tqdm
-import json
 import os
 import re
 import glob
-import pandas as pd
 from envidence import EvidenceStore
 from typing import Dict, List, Tuple
 import duckdb
 import sys
 import gc
 from datetime import datetime
+import pickle
+import tempfile
 
 # Get blacklist file path from environment variable if available, otherwise use default
 blacklist_file = os.environ.get('BLACKLIST_FILE', './blacklist_geohash.parquet')
@@ -47,29 +47,65 @@ def get_existing_maid_files(output_dir):
     
     return existing_maids
 
-def process_maid_data(maid_data, output_dir):
-    """Process data for a single maid - simplified to focus on store operations"""
+def save_daily_pickle(filepath: str, daily_data: dict, date_folder: str) -> None:
+    """Save daily consolidated data to pickle file with atomic write
+    
+    Args:
+        filepath: Path to save the pickle file
+        daily_data: Dictionary mapping {maid: store_data}
+        date_folder: Date folder name for metadata
+    """
+    try:
+        # Prepare data for serialization
+        data = {
+            'daily_data': daily_data,
+            'date': date_folder,
+            'version': '1.0',
+            'created_at': datetime.now().isoformat(),
+            'maid_count': len(daily_data)
+        }
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        # Atomic write: write to temp file first, then atomically replace
+        temp_dir = os.path.dirname(filepath)
+        with tempfile.NamedTemporaryFile(mode='wb', dir=temp_dir, delete=False, suffix='.tmp') as temp_file:
+            temp_path = temp_file.name
+            
+            try:
+                pickle.dump(data, temp_file, protocol=pickle.HIGHEST_PROTOCOL)
+                
+                # Ensure data is written to disk
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+                
+            except Exception:
+                # Clean up temp file on error
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise
+            
+            # Atomically replace target file
+            os.replace(temp_path, filepath)
+                    
+    except Exception as e:
+        print(f"Error saving daily pickle file: {e}")
+        raise
+
+def process_maid_data(maid_data):
+    """Process data for a single maid - returns store data for daily consolidation"""
     maid, prepared_data = maid_data
     
     try:
-        # Create safe filename for this maid
-        safe_filename = make_safe_filename(maid)
-        full_path = os.path.join(output_dir, safe_filename)
-        
         # Convert pandas DataFrame to numpy array to avoid serialization issues
         # Get rows containing geohash, timestamp, latitude, and longitude
         rows = prepared_data[['geohash', 'timestamp', 'latitude', 'longitude', 'flux']].values.tolist()
         
         # Create store for this maid
         store = EvidenceStore(maid=maid)
-        
-        # Try to load existing data from pickle file
-        if os.path.exists(full_path):
-            try:
-                store.load(full_path)
-            except Exception:
-                # If loading fails, continue with empty store
-                pass
         
         # Prepare timestamp data and coordinates - group by geohash
         setin: Dict[str, List[str]] = {}
@@ -96,19 +132,12 @@ def process_maid_data(maid_data, output_dir):
         # Update store with timestamp data, coordinates, and flux values
         store.update(setin, coordinates, flux_values)
         
-        # Save store to pickle file
-        try:
-            store.save(full_path, compress=False)
-        except Exception as e:
-            print(f"Error saving store to pickle file: {e}")
-            pass
-        
-        # No need to return store data, the function just saves it
-        return maid, True
+        # Return maid and store data for daily consolidation
+        return maid, store.store
         
     except Exception as e:
         # Suppress error messages to avoid cluttering output during multiprocessing
-        return maid, False
+        return maid, None
 
 def filter_date_folders(date_folders, start_date=None, end_date=None):
     """Filter date folders based on start and end date range"""
@@ -133,7 +162,7 @@ def filter_date_folders(date_folders, start_date=None, end_date=None):
     
     return filtered_folders
 
-def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir, maid_mapping, valid_maids, start_date=None, end_date=None):
+def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir, start_date=None, end_date=None):
     """Process all data with optional date range filtering - tf_instance parameter kept for compatibility but not used"""
     print(f"\n{'='*60}")
     print(f"Processing all data")
@@ -207,22 +236,6 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
             print(f"No records found in {date_folder}, skipping...")
             conn.close()
             continue
-        
-        # Filter to only valid MAIDs and map to canonical form
-        print(f"Filtering data to valid MAIDs...")
-        initial_count = len(data)
-        data = data[data['maid'].isin(valid_maids)]
-        print(f"Filtered from {initial_count} to {len(data)} rows (MAIDs in tuple list)")
-        
-        if len(data) == 0:
-            print(f"No valid MAIDs found in {date_folder}, skipping...")
-            conn.close()
-            continue
-        
-        # Map all MAIDs to canonical form (column 0)
-        print(f"Mapping MAIDs to canonical form...")
-        data['maid'] = data['maid'].map(maid_mapping)
-        print(f"Mapped {len(data['maid'].unique())} unique canonical MAIDs")
             
         # Filter out MAIDs that already have processed files (if skip_existing_maids is enabled)
         if skip_existing_maids:
@@ -249,6 +262,7 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
         
         # Convert timestamp to datetime
         print(f"Converting timestamps for {len(data)} records...")
+        data['timestamp'] = pd.to_datetime(data['timestamp'])
 
         # Skip data cleaning step since data is already in UTC
         cleaned_data = data
@@ -350,21 +364,35 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
             map_chunksize = int(os.environ.get('MAP_CHUNKSIZE', '100'))
         except Exception:
             map_chunksize = 100
-        
-        # Set output_dir in environment for child processes
-        os.environ['PROCESS_OUTPUT_DIR'] = output_dir
             
         with ProcessPoolExecutor(max_workers=num_processes) as executor:
             results = list(tqdm(
-                executor.map(process_with_output_dir, maid_data_list, chunksize=map_chunksize), 
+                executor.map(process_maid_data, maid_data_list, chunksize=map_chunksize), 
                 total=len(maid_data_list), 
                 desc=f"Processing MAIDs for {date_folder}"
             ))
         
-        # Count successful results
-        successful_maids = sum(1 for _, success in results if success)
+        # Aggregate results into daily consolidated dictionary
+        daily_data = {}
+        successful_maids = 0
+        for maid, store_data in results:
+            if store_data is not None:
+                daily_data[maid] = store_data
+                successful_maids += 1
         
         print(f"Completed processing {successful_maids} MAIDs from {date_folder}")
+        
+        # Save daily consolidated pickle file
+        if daily_data:
+            daily_output_dir = os.path.join(output_dir, 'daily')
+            os.makedirs(daily_output_dir, exist_ok=True)
+            daily_file_path = os.path.join(daily_output_dir, f"{date_folder}.pkl")
+            
+            print(f"Saving daily consolidated file: {daily_file_path}")
+            save_daily_pickle(daily_file_path, daily_data, date_folder)
+            print(f"Successfully saved {len(daily_data)} MAIDs to daily file")
+        else:
+            print(f"No data to save for {date_folder}")
         
         # Close DuckDB connection for this date
         conn.close()
@@ -374,11 +402,6 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
 
     print(f"\nCompleted processing all date folders")
 
-def process_with_output_dir(maid_data):
-    """Wrapper function for process_maid_data that can be used with ProcessPoolExecutor"""
-    # Extract output_dir from environment variable set before process pool creation
-    output_dir = os.environ.get('PROCESS_OUTPUT_DIR', '')
-    return process_maid_data(maid_data, output_dir)
 
 def parse_date_argument(date_str):
     """Parse date string in YYYY-MM-DD format"""
@@ -390,19 +413,6 @@ def parse_date_argument(date_str):
 
 def main():
     """Main function to process all datasets"""
-    # Load MAID tuple mapping for deduplication (only once in main process)
-    maid_tuple_file = os.environ.get('MAID_TUPLE_FILE', './maid_tuple.feather')
-    print(f"Loading MAID tuple mapping from {maid_tuple_file}...")
-    maid_tuple = pd.read_feather(maid_tuple_file)
-    maid_mapping = {}
-    for _, row in maid_tuple.iterrows():
-        canonical_maid = row[0]
-        duplicate_maid = row[1]
-        maid_mapping[canonical_maid] = canonical_maid
-        maid_mapping[duplicate_maid] = canonical_maid
-    valid_maids = set(maid_mapping.keys())
-    print(f"Loaded {len(maid_tuple)} MAID pairs, total {len(valid_maids)} valid MAIDs")
-    
     # Constants
     skip_existing_maids = False  # Set to False to reprocess existing MAIDs
 
@@ -455,7 +465,7 @@ def main():
     # Process all data with date range - removed timezone finder parameter
     date_range_info = f" from {start_date.strftime('%Y-%m-%d') if start_date else 'beginning'} to {end_date.strftime('%Y-%m-%d') if end_date else 'end'}"
     print(f"Processing all data with date range:{date_range_info}")
-    process_dataset(raw_data_base, skip_existing_maids, None, output_dir, maid_mapping, valid_maids, start_date, end_date)
+    process_dataset(raw_data_base, skip_existing_maids, None, output_dir, start_date, end_date)
 
     print("\n" + "="*60)
     print("Completed processing all data")

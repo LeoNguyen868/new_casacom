@@ -5,7 +5,6 @@ psutil
 pandas
 numpy
 pygeohash
-timezonefinder
 tqdm
 gzip-reader
 pycountry

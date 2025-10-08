@@ -224,8 +224,7 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
         
         # Map all MAIDs to canonical form (column 0)
         print(f"Mapping MAIDs to canonical form...")
-        print(f"Original MAIDs: {len(data['maid'].unique())}")
-        data['maid'] = data['maid'].map(maid_mapping)
+        #data['maid'] = data['maid'].map(maid_mapping)
         print(f"Mapped {len(data['maid'].unique())} unique canonical MAIDs")
             
         # Filter out MAIDs that already have processed files (if skip_existing_maids is enabled)
@@ -414,7 +413,7 @@ def main():
     start_date = None
     end_date = None
     raw_data_base = os.environ.get('DATA_RAW_PATH', './data/raw_rt')  # Use env var or default to relative path
-    output_dir = os.environ.get('OUTPUT_DIR', './data/processed')  # Use env var or default to relative path
+    output_dir = os.environ.get('OUTPUT_DIR', './data/processed_2')  # Use env var or default to relative path
 
     # Parse arguments
     i = 1

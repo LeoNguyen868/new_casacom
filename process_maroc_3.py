@@ -3,7 +3,6 @@ import pandas as pd
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 from tqdm import tqdm
-import json
 import os
 import re
 import glob
@@ -106,7 +105,7 @@ def process_maid_data(maid_data, output_dir):
         # No need to return store data, the function just saves it
         return maid, True
         
-    except Exception as e:
+    except Exception:
         # Suppress error messages to avoid cluttering output during multiprocessing
         return maid, False
 
@@ -196,16 +195,13 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
         print(f"Found {len(parquet_files)} parquet files in {date_folder}")
         
         # Query data with deterministic behavior:
-        # - Pre-filter to valid maids inside SQL via an in-memory table
+        # - Read all MAIDs (no pre-filter join)
         # - Add ORDER BY so DISTINCT ON picks the same row consistently
-        print(f"Querying data filter for {date_folder}...")
-        valid_maids_df = pd.DataFrame({'maid': list(valid_maids)})
-        conn.register('valid_maids', valid_maids_df)
+        print(f"Querying data for {date_folder}...")
         data = conn.execute("""
             SELECT DISTINCT ON (latitude, longitude)
                    r.maid, r.timestamp, r.country, r.latitude, r.longitude, r.flux
             FROM read_parquet(?) AS r
-            JOIN valid_maids AS v ON r.maid = v.maid
             ORDER BY r.latitude, r.longitude, r.maid, r.timestamp
         """, [parquet_files]).df()
         
@@ -217,14 +213,11 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
             continue
         
         
-        if len(data) == 0:
-            print(f"No valid MAIDs found in {date_folder}, skipping...")
-            conn.close()
-            continue
         
         # Map all MAIDs to canonical form (column 0)
         print(f"Mapping MAIDs to canonical form...")
-        #data['maid'] = data['maid'].map(maid_mapping)
+        print(f"Original MAIDs: {len(data['maid'].unique())}")
+        #data['maid'] = data['maid'].apply(lambda x: maid_mapping.get(x, x))
         print(f"Mapped {len(data['maid'].unique())} unique canonical MAIDs")
             
         # Filter out MAIDs that already have processed files (if skip_existing_maids is enabled)

@@ -132,7 +132,7 @@ def process_batch(file_batch, batch_id):
         home_pdf = merged[merged.category=='home']
         leisure_pdf = merged[merged.category=='leisure']
         path_pdf.reset_index(inplace=True)
-        
+        path_new_pdf = merged[merged.category=='path']
         # Create result directory if it doesn't exist
         result_dir = os.environ.get('RESULT_DIR', './result')
         os.makedirs(result_dir, exist_ok=True)
@@ -140,7 +140,7 @@ def process_batch(file_batch, batch_id):
         # Save batch results
         print(f"Saving results for batch {batch_id}...")
         path_pdf.to_csv(f'{result_dir}/path_batch_{batch_id}.csv', index=False)
-        merged.to_csv(f'{result_dir}/path_new_batch_{batch_id}.csv', index=False)
+        path_new_pdf.to_csv(f'{result_dir}/path_new_batch_{batch_id}.csv', index=False)
         work_pdf.to_csv(f'{result_dir}/work_batch_{batch_id}.csv', index=False)
         home_pdf.to_csv(f'{result_dir}/home_batch_{batch_id}.csv', index=False)
         leisure_pdf.to_csv(f'{result_dir}/leisure_batch_{batch_id}.csv', index=False)
@@ -148,7 +148,7 @@ def process_batch(file_batch, batch_id):
         print(f"Batch {batch_id} processing complete!")
         
         # Free memory
-        del merged, path_pdf, work_pdf, home_pdf, leisure_pdf
+        del merged, path_pdf, work_pdf, home_pdf, leisure_pdf, path_new_pdf
         gc.collect()
         
         return True

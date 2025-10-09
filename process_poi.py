@@ -256,7 +256,7 @@ def process_maid_data(maid):
             lambda row: pd.Series(get_road(row['lat'], row['lon'])),
             axis=1
         )
-        movement.dropna(inplace=True)
+        # movement.dropna(inplace=True)
         all_pdf = movement
     
     elif movement.empty:
@@ -278,7 +278,7 @@ def process_maid_data(maid):
             lambda row: pd.Series(get_road(row['lat'], row['lon'])),
             axis=1
         )
-        movement.dropna(inplace=True)
+        # movement.dropna(inplace=True)
         all_pdf = pd.concat([stationary, movement], ignore_index=True)
     
     # Calculate combined scores and add to dataframe

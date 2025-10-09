@@ -1,6 +1,6 @@
 import glob
 import pandas as pd
-work=pd.read_csv('/home/hieu/Work/new_casacom/result/work.csv', usecols=['maid', 'geohash'])
+work=pd.read_csv('/home/hieu/Work/new_casacom/result1/work.csv', usecols=['maid', 'geohash'])
 all_work_gt=glob.glob("/home/hieu/Work/casacom/import/work/2025/**/*.parquet")
 work['geohash_5']=work['geohash'].apply(lambda x: x[:5])
 import duckdb

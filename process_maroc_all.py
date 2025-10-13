@@ -165,12 +165,10 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
     
     print(f"Found total {len(all_parquet_files)} parquet files across all dates")
     
-    # Get file batch size from environment variable (number of files to query and process at once)
-    # This controls how many files we load into memory at once to maximize 96GB RAM usage
     try:
-        file_batch_size = int(os.environ.get('FILE_BATCH_SIZE', '5000'))
+        file_batch_size = int(os.environ.get('FILE_BATCH_SIZE', '3000'))
     except Exception:
-        file_batch_size = 5000
+        file_batch_size = 3000
     
     print(f"File batch size: {file_batch_size} files (DuckDB will query this many files at once)")
     
@@ -178,15 +176,23 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
     conn = duckdb.connect()
     conn.execute("SET timezone='UTC'")
     
-    # Configure DuckDB threads
+    # Configure DuckDB for optimal parallel processing
     try:
         duckdb_threads = int(os.environ.get('DUCKDB_THREADS', str(mp.cpu_count())))
     except Exception:
         duckdb_threads = mp.cpu_count()
+
+    # Set DuckDB configuration for optimal parquet reading and parallel processing
     try:
         conn.execute(f"PRAGMA threads={duckdb_threads}")
+        conn.execute("PRAGMA enable_parallel_reads=true")  # Enable parallel reads for parquet files
+        conn.execute("PRAGMA enable_object_cache=true")    # Enable object cache for better performance
+        conn.execute("PRAGMA memory_limit='80GB'")        # Set memory limit to 80GB (leaving some for system)
         print(f"DuckDB threads: {duckdb_threads}")
-    except Exception:
+        print(f"DuckDB memory limit: 80GB")
+        print(f"Parallel reads: enabled")
+    except Exception as e:
+        print(f"Warning: Could not set all DuckDB optimizations: {e}")
         pass
     
     # Process files in large batches to maximize RAM usage
@@ -206,10 +212,9 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
         
         file_list = "', '".join(batch_files)
         data = conn.execute(f"""
-            SELECT maid, timestamp, country, latitude, longitude, flux 
+            SELECT maid, timestamp, country, latitude, longitude, flux
             FROM read_parquet(['{file_list}'])
             WHERE (latitude <= 90 AND latitude >= -90) AND (longitude <= 180 AND longitude >= -180)
-            ORDER BY latitude, longitude, maid, timestamp
         """).df()
         
         print(f"Loaded {len(data):,} total rows in batch {current_batch_num}/{total_batches}")
@@ -446,4 +451,14 @@ def main():
 if __name__ == "__main__":
     # Set multiprocessing start method to 'spawn' for better compatibility
     mp.set_start_method('spawn', force=True)
+
+    # Set optimal environment variables for DuckDB performance if not already set
+    if not os.environ.get('DUCKDB_THREADS'):
+        os.environ['DUCKDB_THREADS'] = str(mp.cpu_count())
+        print(f"Setting DUCKDB_THREADS to {mp.cpu_count()}")
+
+    if not os.environ.get('FILE_BATCH_SIZE'):
+        os.environ['FILE_BATCH_SIZE'] = '3000'
+        print("Setting FILE_BATCH_SIZE to 3000 for optimal performance")
+
     main()

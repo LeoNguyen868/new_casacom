@@ -1,0 +1,1 @@
+mongod --dbpath /var/lib/mongodb --logpath /var/log/mongodb/mongod.log --bind_ip_all --port 27017 --logappend &

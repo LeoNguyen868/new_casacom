@@ -10,11 +10,13 @@ RUN apt-get update && apt-get install -y \
     git \
     gnupg2 \
     lsb-release \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Add PostgreSQL repository
 RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+
 
 # Install PostgreSQL, osm2pgsql and other dependencies
 RUN apt-get update && apt-get install -y \
@@ -30,6 +32,15 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
     && unzip awscliv2.zip \
     && ./aws/install \
     && rm -rf awscliv2.zip aws
+
+# install mongodb
+
+RUN curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor \
+    && echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list \
+    && apt-get update \
+    && apt-get install -y mongodb-org \
+    && rm -rf /var/lib/apt/lists/*
+
 
 # Set working directory
 WORKDIR /app

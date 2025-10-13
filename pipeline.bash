@@ -11,13 +11,13 @@ echo "RESULT_DIR: $RESULT_DIR"
 if [ $# -eq 0 ]; then
     DATES1=(
         "2025-03-23"
-        "2025-03-24"
-        "2025-03-25"
-        "2025-03-26"
-        "2025-03-27"
-        "2025-03-28"
-        "2025-03-29"
-        "2025-03-30"
+        # "2025-03-24"
+        # "2025-03-25"
+        # "2025-03-26"
+        # "2025-03-27"
+        # "2025-03-28"
+        # "2025-03-29"
+        # "2025-03-30"
         # "2025-03-31"
         # "2025-04-01"
         # "2025-04-02"
@@ -221,7 +221,7 @@ for DATE in "${DATES1[@]}"; do
             MIN_DATE=$(printf "%s\n" "${downloaded_in_batch[@]}" | sort | head -n1)
             MAX_DATE=$(printf "%s\n" "${downloaded_in_batch[@]}" | sort | tail -n1)
             echo "Starting data processing for batch: $MIN_DATE -> $MAX_DATE"
-            if python3 process_maroc_all.py --raw-data ./data/raw/; then
+            if python3 process_maroc_mongo.py --raw-data ./data/raw/; then
                 echo "Processing completed successfully for batch: $MIN_DATE -> $MAX_DATE"
                 echo "Removing raw data for processed dates in batch..."
                 for RD in "${downloaded_in_batch[@]}"; do
@@ -246,7 +246,7 @@ if [ ${#batch_dates[@]} -gt 0 ]; then
         MIN_DATE=$(printf "%s\n" "${downloaded_in_batch[@]}" | sort | head -n1)
         MAX_DATE=$(printf "%s\n" "${downloaded_in_batch[@]}" | sort | tail -n1)
         echo "Starting data processing for final batch: $MIN_DATE -> $MAX_DATE"
-        if python3 process_maroc_all.py --raw-data ./data/raw/; then
+        if python3 process_maroc_mongo.py --raw-data ./data/raw/; then
             echo "Processing completed successfully for final batch: $MIN_DATE -> $MAX_DATE"
             echo "Removing raw data for processed dates in final batch..."
             for RD in "${downloaded_in_batch[@]}"; do
@@ -287,7 +287,7 @@ for DATE in "${DATES2[@]}"; do
             MIN_DATE=$(printf "%s\n" "${downloaded_in_batch[@]}" | sort | head -n1)
             MAX_DATE=$(printf "%s\n" "${downloaded_in_batch[@]}" | sort | tail -n1)
             echo "Starting data processing for batch: $MIN_DATE -> $MAX_DATE"
-            if python3 process_maroc_all.py --raw-data ./data/raw_rt/; then
+            if python3 process_maroc_mongo.py --raw-data ./data/raw_rt/; then
                 echo "Processing completed successfully for batch: $MIN_DATE -> $MAX_DATE"
                 echo "Removing raw data for processed dates in batch..."
                 for RD in "${downloaded_in_batch[@]}"; do
@@ -312,7 +312,7 @@ if [ ${#batch_dates[@]} -gt 0 ]; then
         MIN_DATE=$(printf "%s\n" "${downloaded_in_batch[@]}" | sort | head -n1)
         MAX_DATE=$(printf "%s\n" "${downloaded_in_batch[@]}" | sort | tail -n1)
         echo "Starting data processing for final batch: $MIN_DATE -> $MAX_DATE"
-        if python3 process_maroc_all.py --raw-data ./data/raw_rt/; then
+        if python3 process_maroc_mongo.py --raw-data ./data/raw_rt/; then
             echo "Processing completed successfully for final batch: $MIN_DATE -> $MAX_DATE"
             echo "Removing raw data for processed dates in final batch..."
             for RD in "${downloaded_in_batch[@]}"; do

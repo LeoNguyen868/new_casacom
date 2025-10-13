@@ -9,18 +9,46 @@ from pathlib import Path
 from typing import Dict, List, Union, Optional
 import pygeohash as pgh  # type: ignore
 
-def _to_dt(x: Union[str, dt.datetime]) -> dt.datetime:
+def _to_dt(x: Union[str, float, int, dt.datetime]) -> dt.datetime:
     """Convert input to datetime object, ensuring UTC timezone consistency"""
-    if isinstance(x, str):
-        # Parse string and assume it's in UTC if no timezone info
-        dt_obj = dt.datetime.fromisoformat(x.replace('Z', '+00:00'))
-        if dt_obj.tzinfo is None:
-            dt_obj = dt_obj.replace(tzinfo=dt.timezone.utc)
-        return dt_obj
+    if isinstance(x, (int, float)):
+        # Unix timestamp - convert to datetime with UTC timezone
+        return dt.datetime.fromtimestamp(x, tz=dt.timezone.utc)
+    elif isinstance(x, str):
+        try:
+            # Handle different string formats
+            if x.endswith('Z'):
+                # ISO format with Z suffix - assume UTC
+                dt_obj = dt.datetime.fromisoformat(x.replace('Z', '+00:00'))
+            elif '+' in x or x.count('-') >= 3:  # Likely has timezone info
+                # ISO format with timezone
+                dt_obj = dt.datetime.fromisoformat(x)
+            else:
+                # ISO format without timezone - assume UTC
+                dt_obj = dt.datetime.fromisoformat(x)
+                if dt_obj.tzinfo is None:
+                    dt_obj = dt_obj.replace(tzinfo=dt.timezone.utc)
+
+            # Ensure UTC timezone for consistency
+            if dt_obj.tzinfo is None:
+                dt_obj = dt_obj.replace(tzinfo=dt.timezone.utc)
+            elif dt_obj.tzinfo != dt.timezone.utc:
+                # Convert to UTC if it's a different timezone
+                dt_obj = dt_obj.astimezone(dt.timezone.utc)
+
+            return dt_obj
+        except ValueError:
+            # Fallback: try parsing as naive datetime and assume UTC
+            dt_obj = dt.datetime.fromisoformat(x)
+            if dt_obj.tzinfo is None:
+                dt_obj = dt_obj.replace(tzinfo=dt.timezone.utc)
+            return dt_obj
     elif isinstance(x, dt.datetime):
         # Ensure datetime has UTC timezone
         if x.tzinfo is None:
             return x.replace(tzinfo=dt.timezone.utc)
+        elif x.tzinfo != dt.timezone.utc:
+            return x.astimezone(dt.timezone.utc)
         return x
     else:
         raise ValueError(f"Unsupported type for datetime conversion: {type(x)}")
@@ -60,6 +88,21 @@ class EvidenceStore:
             'time_diff_count': 0,
         }
     
+    def _serialize_store_for_mongo(self) -> Dict[str, dict]:
+        """Serialize store data for MongoDB storage, converting datetime objects to Unix timestamps"""
+        import copy
+
+        serialized_store = copy.deepcopy(self.store)
+
+        for geohash_data in serialized_store.values():
+            # Convert datetime objects to Unix timestamps (float seconds since epoch)
+            if 'first_seen_ts' in geohash_data and isinstance(geohash_data['first_seen_ts'], dt.datetime):
+                geohash_data['first_seen_ts'] = geohash_data['first_seen_ts'].timestamp()
+            if 'last_seen_ts' in geohash_data and isinstance(geohash_data['last_seen_ts'], dt.datetime):
+                geohash_data['last_seen_ts'] = geohash_data['last_seen_ts'].timestamp()
+
+        return serialized_store
+
     def _update_geohash_stats(self, c: dict, geohashes: List[str]):
         """Update geohash mean and std incrementally using pygeohash
         
@@ -141,7 +184,7 @@ class EvidenceStore:
             mask |= 0x8
         return mask
 
-    def update(self, new_data: Dict[str, List[Union[str, dt.datetime]]], 
+    def update(self, new_data: Dict[str, List[float]],
                geohashes: Optional[Dict[str, List[str]]] = None,
                flux_data: Optional[Dict[str, List[str]]] = None):
         """Update evidence store with timestamp data and simplified duration calculation
@@ -178,10 +221,9 @@ class EvidenceStore:
             store.update(setin, geohashes_p12, flux_values)
         """
         for gh, ts_list in (new_data or {}).items():
-            if not ts_list: 
+            if not ts_list:
                 continue
-            ts_objs = [_to_dt(x) for x in ts_list]
-            ts_objs.sort()
+            ts_floats = sorted(ts_list)  # Already floats, just sort them
             c = self.store.get(gh)
             if c is None:
                 c = self._init()
@@ -201,26 +243,34 @@ class EvidenceStore:
 
             # Initialize or reset hourly_minutes for this update
             hourly_minutes = {}
+
+            # Track previous timestamp for time diff calculation (float)
+            # Ensure prev_ts is a float Unix timestamp, not datetime object
+            prev_ts = None
+            if c['last_seen_ts'] is not None:
+                if isinstance(c['last_seen_ts'], (int, float)):
+                    prev_ts = c['last_seen_ts']  # Already a Unix timestamp
+                elif isinstance(c['last_seen_ts'], dt.datetime):
+                    prev_ts = c['last_seen_ts'].timestamp()  # Convert datetime to Unix timestamp
             
-            # Track previous timestamp for time diff calculation
-            prev_ts = c['last_seen_ts'] if c['last_seen_ts'] is not None else None
-            
-            for ts in ts_objs:
-                d = ts.date()
-                h = ts.hour
-                minute = ts.minute
-                wd = ts.weekday()
-                
+            for ts_float in ts_floats:
+                # Convert Unix timestamp to datetime for date/time calculations
+                ts_dt = dt.datetime.fromtimestamp(ts_float, tz=dt.timezone.utc)
+                d = ts_dt.date()
+                h = ts_dt.hour
+                minute = ts_dt.minute
+                wd = ts_dt.weekday()
+
                 # Calculate time diff from previous ping (incremental)
                 if prev_ts is not None:
-                    time_diff = (ts - prev_ts).total_seconds()
+                    time_diff = ts_float - prev_ts  # Direct subtraction of floats
                     if time_diff > 0:  # Only count positive time differences
                         c['total_time_diff_seconds'] += time_diff
                         c['time_diff_count'] += 1
-                
+
                 # Update prev_ts for next iteration
-                prev_ts = ts
-                
+                prev_ts = ts_float
+
                 # Track min/max minute for each hour
                 h_str = str(h)
                 if h_str not in hourly_minutes:
@@ -228,11 +278,18 @@ class EvidenceStore:
                 else:
                     hourly_minutes[h_str]['min'] = min(hourly_minutes[h_str]['min'], minute)
                     hourly_minutes[h_str]['max'] = max(hourly_minutes[h_str]['max'], minute)
-                
-                # Update other tracking fields
-                ts_iso = ts.isoformat()
-                c['first_seen_ts'] = ts_iso if c['first_seen_ts'] is None or ts_iso < c['first_seen_ts'] else c['first_seen_ts']
-                c['last_seen_ts']  = ts_iso if c['last_seen_ts']  is None or ts_iso > c['last_seen_ts']  else c['last_seen_ts']
+
+                # Update first_seen_ts and last_seen_ts (already floats)
+                if c['first_seen_ts'] is None:
+                    c['first_seen_ts'] = ts_float
+                else:
+                    c['first_seen_ts'] = min(ts_float, c['first_seen_ts'])
+
+                if c['last_seen_ts'] is None:
+                    c['last_seen_ts'] = ts_float
+                else:
+                    c['last_seen_ts'] = max(ts_float, c['last_seen_ts'])
+
                 c['pings'] += 1
                 d_iso = d.isoformat()
                 if d_iso not in c['unique_days']:
@@ -243,10 +300,11 @@ class EvidenceStore:
                     c['hourly_hist_weekend'][h] += 1
                 else:
                     c['hourly_hist_weekday'][h] += 1
-                mkey = f"{ts.year:04d}-{ts.month:02d}"
+                mkey = f"{ts_dt.year:04d}-{ts_dt.month:02d}"
                 c['monthly_hist'][mkey] = c['monthly_hist'].get(mkey, 0) + 1
                 date_key = d.isoformat()
-                c['daily_flags'][date_key] = c['daily_flags'].get(date_key, 0) | self._mask_for(ts)
+                c['daily_flags'][date_key] = c['daily_flags'].get(date_key, 0) | self._mask_for(ts_dt)
+                # Handle max_seen_date comparison (both should be strings now)
                 if c['max_seen_date'] is None or d_iso > c['max_seen_date']:
                     if c['max_seen_date'] is not None:
                         # Parse dates for comparison
@@ -300,11 +358,12 @@ class EvidenceStore:
             compress: Whether to use gzip compression (default: False for <1MB files)
         """
         try:
-            # Prepare data for serialization
+            # Prepare data for serialization - ensure all datetime objects are strings
+            serialized_store = self._serialize_store_for_mongo()
+
             data = {
-                'store': self.store,
+                'store': serialized_store,
                 'version': '2.0',  # For future compatibility
-                'created_at': dt.datetime.now().isoformat(),
                 'maid': self.maid,  # Add MAID to saved data
                 'total_pings': self.total_pings  # Add total_pings to saved data
             }
@@ -413,14 +472,44 @@ class EvidenceStore:
         if last_exception:
             raise last_exception
     def load_from_mongo(self, data: dict) -> None:
-        """Load EvidenceStore from pickle format with retry on transient errors
-        
+        """Load EvidenceStore from MongoDB format with proper type conversion
+
         Args:
-            data: Data to load
+            data: Data loaded from MongoDB
         """
         self.store = data['store']
         self.maid = data.get('maid', None)
         self.total_pings = data.get('total_pings', 0)
+
+        # Ensure all timestamps are Unix timestamps (floats) for consistency
+        for geohash_data in self.store.values():
+            # Convert first_seen_ts to Unix timestamp if it's datetime object or string
+            if 'first_seen_ts' in geohash_data:
+                if isinstance(geohash_data['first_seen_ts'], dt.datetime):
+                    geohash_data['first_seen_ts'] = geohash_data['first_seen_ts'].timestamp()
+                elif isinstance(geohash_data['first_seen_ts'], str):
+                    # Convert old string format to Unix timestamp
+                    dt_obj = _to_dt(geohash_data['first_seen_ts'])
+                    geohash_data['first_seen_ts'] = dt_obj.timestamp()
+
+            # Convert last_seen_ts to Unix timestamp if it's datetime object or string
+            if 'last_seen_ts' in geohash_data:
+                if isinstance(geohash_data['last_seen_ts'], dt.datetime):
+                    geohash_data['last_seen_ts'] = geohash_data['last_seen_ts'].timestamp()
+                elif isinstance(geohash_data['last_seen_ts'], str):
+                    # Convert old string format to Unix timestamp
+                    dt_obj = _to_dt(geohash_data['last_seen_ts'])
+                    geohash_data['last_seen_ts'] = dt_obj.timestamp()
+
+            # Ensure max_seen_date is always a string for consistency
+            if 'max_seen_date' in geohash_data:
+                if isinstance(geohash_data['max_seen_date'], dt.date):
+                    # Convert date object to string format
+                    geohash_data['max_seen_date'] = geohash_data['max_seen_date'].isoformat()
+                elif isinstance(geohash_data['max_seen_date'], dt.datetime):
+                    # Convert datetime object to date string
+                    geohash_data['max_seen_date'] = geohash_data['max_seen_date'].date().isoformat()
+                # If it's already a string, keep it as is
 
     
     def save(self, filepath: str, compress: bool = False) -> None:
@@ -466,14 +555,17 @@ class EvidenceStore:
         if visits == 0:
             return None
 
-        first, last = c['first_seen_ts'], c['last_seen_ts']
-        # Convert string timestamps to datetime objects if needed
-        if isinstance(first, str):
-            first = _to_dt(first)
-        if isinstance(last, str):
-            last = _to_dt(last)
-        
-        span_days = (last.date() - first.date()).days + 1 if first and last else 0
+        first_ts, last_ts = c['first_seen_ts'], c['last_seen_ts']
+
+        # Convert Unix timestamps to datetime objects for date calculations
+        first = dt.datetime.fromtimestamp(first_ts, tz=dt.timezone.utc) if first_ts is not None else None
+        last = dt.datetime.fromtimestamp(last_ts, tz=dt.timezone.utc) if last_ts is not None else None
+
+        # Calculate span in days
+        if first and last:
+            span_days = (last.date() - first.date()).days + 1
+        else:
+            span_days = 0
         unique_days = len(c['unique_days'])
         
         # Improved active_day_ratio with span capping and continuity boost

@@ -6,3 +6,4 @@ collection = db['maids']
 
 for doc in collection.find():
     print(doc)
+    break

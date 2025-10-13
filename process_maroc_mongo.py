@@ -18,6 +18,7 @@ from collections import defaultdict
 import duckdb
 import sys
 import gc
+import time
 from datetime import datetime
 from pymongo import MongoClient, UpdateOne
 import pickle
@@ -75,7 +76,7 @@ def get_existing_maid_files(output_dir):
     
     return existing_maids
 
-def process_maid_data(maid_data, existing_store_data=None):
+def process_maid_data(maid_data, batch_existing_docs=None):
     """Process data for a single maid - return store for bulk MongoDB save"""
     maid, prepared_data = maid_data
 
@@ -85,40 +86,69 @@ def process_maid_data(maid_data, existing_store_data=None):
         prepared_data.sort_values(by='timestamp', inplace=True)
         rows = prepared_data[['geohash', 'timestamp', 'latitude', 'longitude', 'flux']].values.tolist()
 
-        # Create store for this maid
-        store = EvidenceStore(maid=maid)
-
-        # Try to load existing data from MongoDB if available
-        if existing_store_data and maid in existing_store_data:
-            try:
-                # Convert existing store data back to EvidenceStore format
-                store_data = existing_store_data[maid]
-                # Load existing data into store
-                for geohash, data in store_data.get('store', {}).items():
-                    if 'timestamps' in data:
-                        # Add existing timestamps
-                        pass  # This would need more complex reconstruction
-            except Exception:
-                # If loading fails, continue with empty store
-                pass
-
         # Group data by geohash
         timestamp_data = defaultdict(list)
         coordinates = defaultdict(list)
         flux_data = defaultdict(list)
 
         for gh, ts, lat, lon, flux in rows:
-            timestamp_data[gh].append(ts)
+            # Convert timestamp to Unix timestamp if it's a datetime object
+            if hasattr(ts, 'timestamp'):  # It's a datetime object
+                ts_float = ts.timestamp()
+            else:  # It's already a float or int
+                ts_float = float(ts)
+
+            timestamp_data[gh].append(ts_float)
             coordinates[gh].append(pgh.encode(lat, lon, precision=12))
             if flux is not None:
                 flux_data[gh].append(flux)
 
-        store.update(timestamp_data, coordinates, flux_data)
+        # Check if MAID exists in current batch's existing docs for incremental update
+        if batch_existing_docs and maid in batch_existing_docs:
+            # MAID exists, need to load existing store and update
+            from pymongo import MongoClient
+
+            try:
+                # Create temporary MongoDB connection to load existing data
+                mongo_host = os.getenv('MONGO_HOST', 'localhost')
+                mongo_port = int(os.getenv('MONGO_PORT', '27017'))
+                mongo_db = os.getenv('MONGO_DB', 'casacom')
+                mongo_collection = os.getenv('MONGO_COLLECTION', 'maids')
+
+                temp_client = MongoClient(f'mongodb://{mongo_host}:{mongo_port}/')
+                temp_collection = temp_client[mongo_db][mongo_collection]
+
+                # Load existing document from MongoDB
+                existing_doc = temp_collection.find_one({'_id': maid})
+                temp_client.close()
+
+                if existing_doc:
+                    # print(f"Loading existing store for MAID: {maid}")
+                    # Create store and load existing data
+                    store = EvidenceStore(maid=maid)
+                    store.load_from_mongo(existing_doc)
+                    # Update with new data
+                    store.update(timestamp_data, coordinates, flux_data)
+                else:
+                    # Fallback: create new store if document not found
+                    print(f"Warning: MAID {maid} in existing list but not found in DB, creating new store")
+                    store = EvidenceStore(maid=maid)
+                    store.update(timestamp_data, coordinates, flux_data)
+            except Exception as e:
+                print(f"Error loading existing store for MAID {maid}: {e}")
+                # Fallback: create new store
+                store = EvidenceStore(maid=maid)
+                store.update(timestamp_data, coordinates, flux_data)
+        else:
+            # Create new store (new MAID or no existing data)
+            store = EvidenceStore(maid=maid)
+            store.update(timestamp_data, coordinates, flux_data)
 
         # Return store object for bulk MongoDB save
         return maid, store, True
 
     except Exception as e:
+        print(f"Error processing maid {maid}: {e}")
         # Return error info for debugging if needed
         return maid, None, False
 
@@ -325,13 +355,39 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, maid_mappin
 
         print(f"Processing MAIDs with {num_processes} workers...")
 
+        # === NEW: Query existing MAIDs for current batch ===
+        current_batch_maids = {maid for maid, _ in maid_data_list}
+        print(f"Checking {len(current_batch_maids)} MAIDs for existing data...")
+
+        if current_batch_maids:
+            try:
+                # Query existing MAIDs for current batch only
+                existing_docs = list(collection.find(
+                    {'_id': {'$in': list(current_batch_maids)}},
+                    {'_id': 1}  # Only get _id for efficiency
+                ))
+                batch_existing_maids = {doc['_id'] for doc in existing_docs}
+                print(f"Found {len(batch_existing_maids)} existing MAIDs in current batch")
+
+                # Create dict mapping maid -> existing_doc for faster lookup
+                batch_existing_docs = {doc['_id']: doc for doc in existing_docs}
+            except Exception as e:
+                print(f"Warning: Could not query existing MAIDs for batch: {e}")
+                batch_existing_maids = set()
+                batch_existing_docs = {}
+        else:
+            batch_existing_maids = set()
+            batch_existing_docs = {}
+
         # Process all maids and collect stores for bulk MongoDB save
         all_stores = []
         successful_maids = 0
 
         with ProcessPoolExecutor(max_workers=num_processes) as executor:
             results = list(tqdm(
-                executor.map(process_maid_data, maid_data_list, chunksize=map_chunksize),
+                executor.map(process_maid_data, maid_data_list,
+                           [batch_existing_docs] * len(maid_data_list),
+                           chunksize=map_chunksize),
                 total=len(maid_data_list),
                 desc=f"  Processing MAIDs (batch {current_batch_num}/{total_batches})"
             ))
@@ -349,14 +405,13 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, maid_mappin
             bulk_ops = []
 
             for maid, store in all_stores:
-                # Convert store to dict for MongoDB (same format as pickle save)
+                # Convert store to dict for MongoDB with proper serialization
                 from datetime import datetime as dt
                 store_dict = {
                     '_id': maid,
                     'maid': store.maid,
-                    'store': dict(store.store),  # Convert defaultdict to regular dict
+                    'store': store._serialize_store_for_mongo(),  # Use serialized store
                     'version': '2.0',
-                    'created_at': dt.now().isoformat(),
                     'total_pings': store.total_pings
                 }
                 bulk_ops.append(UpdateOne(
@@ -377,9 +432,8 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, maid_mappin
                         store_dict = {
                             '_id': maid,
                             'maid': store.maid,
-                            'store': dict(store.store),
+                            'store': store._serialize_store_for_mongo(),  # Use serialized store
                             'version': '2.0',
-                            'created_at': dt.now().isoformat(),
                             'total_pings': store.total_pings
                         }
                         collection.replace_one({'_id': maid}, store_dict, upsert=True)
@@ -481,7 +535,10 @@ def main():
     print(f"Connecting to MongoDB at {mongo_uri}, database: {mongo_db}, collection: {mongo_collection}")
     mongo_client = MongoClient(mongo_uri)
 
-    # Process all data with date range
+    # Note: We no longer query all existing MAIDs upfront to avoid memory usage
+    # Instead, we'll query existing MAIDs per batch in process_dataset
+
+    # Process all data with existing MAIDs set
     date_parts = []
     if start_date:
         date_parts.append(f"from {start_date.strftime('%Y-%m-%d')}")

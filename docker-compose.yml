@@ -13,7 +13,7 @@ services:
       - AWS_PROFILE=hw  # Default profile, can be overridden
       - DATA_RAW_PATH1=/app/data/raw
       - DATA_RAW_PATH2=/app/data/raw_rt
-      - OUTPUT_DIR=/app/data/processed
+      - OUTPUT_DIR=/app/data/processed_all
       - RESULT_DIR=/app/result
       - POSTGRES_DB=osm
       - POSTGRES_USER=postgres

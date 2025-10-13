@@ -45,6 +45,7 @@ COPY *.json /app/
 COPY *.parquet /app/
 COPY *.bash /app/
 COPY *.pbf /app/
+COPY *.pkl /app/
 COPY *.feather /app/
 # Create directories
 RUN mkdir -p /app/data/raw /app/data/raw_rt /app/data/processed /app/result
@@ -57,7 +58,7 @@ COPY aws_config.txt /root/.aws/config
 ENV PATH="/app:${PATH}"
 ENV DATA_RAW_PATH1="/app/data/raw"
 ENV DATA_RAW_PATH2="/app/data/raw_rt"
-ENV OUTPUT_DIR="/app/data/processed"
+ENV OUTPUT_DIR="/app/data/processed_all"
 ENV POSTGRES_DB="osm"
 ENV POSTGRES_USER="postgres"
 ENV POSTGRES_PASSWORD="postgres"

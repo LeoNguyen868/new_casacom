@@ -18,7 +18,6 @@ from collections import defaultdict
 import duckdb
 import sys
 import gc
-import time
 from datetime import datetime
 from pymongo import MongoClient, UpdateOne
 import pickle
@@ -43,6 +42,53 @@ def cleanup_dataframe(df, name=""):
         if name:
             print(f"Cleaned up {name} DataFrame")
     return None
+
+def batch_query_existing_maids(collection, maid_list, batch_size=None):
+    """Query existing MAIDs in batches to avoid MongoDB document size limit
+
+    Args:
+        collection: MongoDB collection to query
+        maid_list: List of MAIDs to check for existence
+        batch_size: Maximum number of MAIDs per query batch (default: from env var)
+
+    Returns:
+        tuple: (existing_maids_set, existing_docs_dict)
+    """
+    if batch_size is None:
+        batch_size = get_env_int('MAID_QUERY_BATCH_SIZE', 100000)
+
+    existing_maids = set()
+    existing_docs = {}
+
+    total_maids = len(maid_list)
+    print(f"Batch querying {total_maids:,} MAIDs in batches of {batch_size:,}")
+
+    for i in range(0, total_maids, batch_size):
+        batch_end = min(i + batch_size, total_maids)
+        current_batch = maid_list[i:batch_end]
+
+        try:
+            # Query current batch
+            batch_docs = list(collection.find(
+                {'_id': {'$in': current_batch}},
+                {'_id': 1}  # Only get _id for efficiency
+            ))
+
+            # Add to results
+            for doc in batch_docs:
+                existing_maids.add(doc['_id'])
+                existing_docs[doc['_id']] = doc
+
+            batch_progress = min(i + batch_size, total_maids)
+            print(f"  Processed {batch_progress:,}/{total_maids:,} MAIDs")
+
+        except Exception as e:
+            print(f"Warning: Error querying batch {i//batch_size + 1}: {e}")
+            # Continue with next batch even if current batch fails
+            continue
+
+    print(f"Found {len(existing_maids):,} existing MAIDs out of {total_maids:,} total")
+    return existing_maids, existing_docs
 
 # Get blacklist file path from environment variable if available, otherwise use default
 blacklist_file = get_env_str('BLACKLIST_FILE', './blacklist_geohash.parquet')
@@ -361,16 +407,11 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, maid_mappin
 
         if current_batch_maids:
             try:
-                # Query existing MAIDs for current batch only
-                existing_docs = list(collection.find(
-                    {'_id': {'$in': list(current_batch_maids)}},
-                    {'_id': 1}  # Only get _id for efficiency
-                ))
-                batch_existing_maids = {doc['_id'] for doc in existing_docs}
-                print(f"Found {len(batch_existing_maids)} existing MAIDs in current batch")
-
-                # Create dict mapping maid -> existing_doc for faster lookup
-                batch_existing_docs = {doc['_id']: doc for doc in existing_docs}
+                # Query existing MAIDs in batches to avoid MongoDB document size limit
+                maid_list = list(current_batch_maids)
+                batch_existing_maids, batch_existing_docs = batch_query_existing_maids(
+                    collection, maid_list
+                )
             except Exception as e:
                 print(f"Warning: Could not query existing MAIDs for batch: {e}")
                 batch_existing_maids = set()
@@ -571,5 +612,9 @@ if __name__ == "__main__":
     if not os.environ.get('FILE_BATCH_SIZE'):
         os.environ['FILE_BATCH_SIZE'] = '3000'
         print("Setting FILE_BATCH_SIZE to 3000 for optimal performance")
+
+    if not os.environ.get('MAID_QUERY_BATCH_SIZE'):
+        os.environ['MAID_QUERY_BATCH_SIZE'] = '100000'
+        print("Setting MAID_QUERY_BATCH_SIZE to 100000 to avoid MongoDB document size limits")
 
     main()

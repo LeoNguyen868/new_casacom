@@ -6,9 +6,8 @@ from tqdm import tqdm
 import os
 import re
 import glob
-import pandas as pd
 from envidence_new import EvidenceStore
-from typing import Dict, List, Tuple
+from typing import Dict, List
 import duckdb
 import sys
 import gc
@@ -121,9 +120,9 @@ def filter_date_folders(date_folders, start_date=None, end_date=None):
     return filtered_folders
 
 def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir, maid_mapping, valid_maids, start_date=None, end_date=None):
-    """Process all data with optional date range filtering - tf_instance parameter kept for compatibility but not used"""
+    """Process all data with optional date range filtering - processes in file batches to maximize RAM usage"""
     print(f"\n{'='*60}")
-    print(f"Processing all data")
+    print(f"Processing all data in file batches (optimized for 96GB RAM)")
     if start_date or end_date:
         date_range_str = f"Date range: {start_date.strftime('%Y-%m-%d') if start_date else 'beginning'} to {end_date.strftime('%Y-%m-%d') if end_date else 'end'}"
         print(f"{date_range_str}")
@@ -151,83 +150,81 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
     if start_date or end_date:
         print(f"(Filtered from {len(all_date_folders)} total date folders based on date range)")
 
-    # Process each date folder one by one
+    # Collect all parquet files from all date folders
+    print(f"\nCollecting parquet files from all date folders...")
+    all_parquet_files = []
     for date_folder in date_folders:
-        print(f"\nProcessing date folder: {date_folder}")
-        
-        # Create DuckDB connection for this date
-        conn = duckdb.connect()
-        # Set timezone to UTC to ensure consistent timestamp handling
-        conn.execute("SET timezone='UTC'")
-        # Configure DuckDB threads from environment or default to CPU count
-        try:
-            duckdb_threads = int(os.environ.get('DUCKDB_THREADS', str(mp.cpu_count())))
-        except Exception:
-            duckdb_threads = mp.cpu_count()
-        try:
-            conn.execute(f"PRAGMA threads={duckdb_threads}")
-        except Exception:
-            pass
-        
-        # Get all parquet files for this specific date folder
         folder_path = os.path.join(raw_data_base, date_folder)
         parquet_pattern = os.path.join(folder_path, '*.parquet')
-        # Sort files to ensure deterministic input order across runs
         parquet_files = sorted(glob.glob(parquet_pattern))
+        all_parquet_files.extend(parquet_files)
+    
+    if not all_parquet_files:
+        print(f"No parquet files found in any date folder, exiting...")
+        return
+    
+    print(f"Found total {len(all_parquet_files)} parquet files across all dates")
+    
+    # Get file batch size from environment variable (number of files to query and process at once)
+    # This controls how many files we load into memory at once to maximize 96GB RAM usage
+    try:
+        file_batch_size = int(os.environ.get('FILE_BATCH_SIZE', '5000'))
+    except Exception:
+        file_batch_size = 5000
+    
+    print(f"File batch size: {file_batch_size} files (DuckDB will query this many files at once)")
+    
+    # Create single DuckDB connection for all processing
+    conn = duckdb.connect()
+    conn.execute("SET timezone='UTC'")
+    
+    # Configure DuckDB threads
+    try:
+        duckdb_threads = int(os.environ.get('DUCKDB_THREADS', str(mp.cpu_count())))
+    except Exception:
+        duckdb_threads = mp.cpu_count()
+    try:
+        conn.execute(f"PRAGMA threads={duckdb_threads}")
+        print(f"DuckDB threads: {duckdb_threads}")
+    except Exception:
+        pass
+    
+    # Process files in large batches to maximize RAM usage
+    total_batches = (len(all_parquet_files) - 1) // file_batch_size + 1
+    
+    for batch_idx in range(0, len(all_parquet_files), file_batch_size):
+        batch_files = all_parquet_files[batch_idx:batch_idx + file_batch_size]
+        current_batch_num = batch_idx // file_batch_size + 1
         
-        if not parquet_files:
-            print(f"No parquet files found in {date_folder}, skipping...")
-            conn.close()
-            continue
+        print(f"\n{'='*60}")
+        print(f"Processing file batch {current_batch_num}/{total_batches}")
+        print(f"Files in this batch: {len(batch_files)}")
+        print(f"{'='*60}")
         
-        print(f"Found {len(parquet_files)} parquet files in {date_folder}")
-        print(f"Querying data for {date_folder}...")
-        # Register valid_maids as a DuckDB table for efficient filtering
-        conn.register('valid_maids_table', pd.DataFrame({'maid': list(valid_maids)}))
-        # data = conn.execute("""
-        #     SELECT t.maid, t.timestamp, t.country, t.latitude, t.longitude, t.flux
-        #     FROM read_parquet(?) t
-        #     INNER JOIN valid_maids_table v ON t.maid = v.maid
-        #     ORDER BY t.latitude, t.longitude, t.maid, t.timestamp
-        # """, [parquet_files]).df()
-
-        # Process parquet files in batches to reduce memory usage
-        all_dfs = []
-        batch_size = 500
-        for i in range(0, len(parquet_files), batch_size):
-            batch_files = parquet_files[i:i+batch_size]
-            print(f"Processing batch {i//batch_size + 1}/{(len(parquet_files)-1)//batch_size + 1} ({len(batch_files)} files)")
-            # Create a list of file paths for the batch
-            file_list = "', '".join(batch_files)
-            result_df = conn.execute(f"""
-                SELECT maid, timestamp, country, latitude, longitude, flux 
-                FROM read_parquet(['{file_list}'])
-                WHERE (latitude <= 90 AND latitude >= -90) AND (longitude <= 180 AND longitude >= -180)
-                ORDER BY latitude, longitude, maid, timestamp
-            """).df()
-            
-            all_dfs.append(result_df)
-            del result_df
-            gc.collect()
+        # Query all files in this batch at once with DuckDB
+        print(f"Querying {len(batch_files)} parquet files with DuckDB...")
         
-        data = pd.concat(all_dfs, ignore_index=True)
-        del all_dfs
-        gc.collect()
+        file_list = "', '".join(batch_files)
+        data = conn.execute(f"""
+            SELECT maid, timestamp, country, latitude, longitude, flux 
+            FROM read_parquet(['{file_list}'])
+            WHERE (latitude <= 90 AND latitude >= -90) AND (longitude <= 180 AND longitude >= -180)
+            ORDER BY latitude, longitude, maid, timestamp
+        """).df()
         
-        print(f"Loaded {len(data)} total rows from {date_folder}")
+        print(f"Loaded {len(data):,} total rows in batch {current_batch_num}/{total_batches}")
         
         if len(data) == 0:
-            print(f"No records found in {date_folder}, skipping...")
-            conn.close()
+            print(f"No records found in this batch, skipping...")
             continue
         
-        
-        
-        # Map all MAIDs to canonical form (column 0)
+        # Map all MAIDs to canonical form
         print(f"Mapping MAIDs to canonical form...")
-        print(f"Original MAIDs: {len(data['maid'].unique())}")
+        original_unique_maids = len(data['maid'].unique())
+        print(f"  Original unique MAIDs: {original_unique_maids:,}")
         data['maid'] = data['maid'].apply(lambda x: maid_mapping.get(x, x))
-        print(f"Mapped {len(data['maid'].unique())} unique canonical MAIDs")
+        mapped_unique_maids = len(data['maid'].unique())
+        print(f"  Mapped unique MAIDs: {mapped_unique_maids:,}")
             
         # Filter out MAIDs that already have processed files (if skip_existing_maids is enabled)
         if skip_existing_maids:
@@ -243,42 +240,21 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
             # Filter data to only include MAIDs that need processing
             if len(maids_to_process) > 0:
                 data = data[data['maid'].isin(maids_to_process)]
-                print(f"After filtering existing files: {len(maids_to_process)} unique MAIDs remaining to process in {date_folder}")
+                print(f"After filtering existing files: {len(maids_to_process):,} unique MAIDs remaining")
             else:
-                print(f"All MAIDs already processed for {date_folder}, skipping...")
-                conn.close()
+                print(f"All MAIDs already processed for this batch, skipping...")
+                del data
+                gc.collect()
                 continue
         
-        # Clean data and add geohash before threading (like in script_HCM.py)
-        print(f"Cleaning data and adding geohash for {len(data)} records...")
-        
-        # Convert timestamp to datetime
-        print(f"Converting timestamps for {len(data)} records...")
-
-        # Skip data cleaning step since data is already in UTC
+        # Data is already in UTC, no need to clean
         cleaned_data = data
+        del data
+        gc.collect()
         
-        # Add geohash column using vectorized operation for all data at once
-        print(f"Adding geohash to {len(cleaned_data)} records...")
+        # Parallel geohash encoding
+        print(f"Encoding geohashes for {len(cleaned_data):,} records...")
         
-        # Filter out invalid coordinates (NaN, inf, out of bounds)
-        valid_coords = ((cleaned_data['latitude'] >= -90.0) & 
-                        (cleaned_data['latitude'] <= 90.0) & 
-                        (cleaned_data['longitude'] >= -180.0) & 
-                        (cleaned_data['longitude'] <= 180.0) &
-                        (cleaned_data['latitude'].notna()) &
-                        (cleaned_data['longitude'].notna()) &
-                        (~cleaned_data['latitude'].isin([float('inf'), float('-inf')]) &
-                        (~cleaned_data['longitude'].isin([float('inf'), float('-inf')]))))
-        
-        invalid_count = len(cleaned_data) - valid_coords.sum()
-        if invalid_count > 0:
-            print(f"WARNING: Found {invalid_count} records with invalid coordinates that will be filtered out")
-            cleaned_data = cleaned_data[valid_coords]
-            print(f"Continuing with {len(cleaned_data)} valid records...")
-        
-        # Parallel geohash encoding with batches across processes
-        print("Encoding geohashes in parallel...")
         try:
             gh_precision = int(os.environ.get('GEOHASH_PRECISION', '7'))
         except Exception:
@@ -308,7 +284,6 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
         batch_args = []
         for i in range(0, total_rows, gh_batch_size):
             batch_end = min(i + gh_batch_size, total_rows)
-            print(f"Geohash batch {i//gh_batch_size + 1}/{(total_rows-1)//gh_batch_size + 1} ({batch_end - i} rows)")
             # Slice as Python lists for cheaper pickling
             batch_lat = cleaned_data['latitude'].iloc[i:batch_end].tolist()
             batch_lon = cleaned_data['longitude'].iloc[i:batch_end].tolist()
@@ -316,29 +291,32 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
 
         if len(batch_args) == 1:
             # Single batch: avoid process pool overhead
+            print(f"  Single geohash batch, processing directly...")
             geohashes = encode_geohash_batch(batch_args[0])
         else:
+            print(f"  Processing {len(batch_args)} geohash batches with {gh_workers} workers...")
             with ProcessPoolExecutor(max_workers=gh_workers) as gh_executor:
                 for result in tqdm(
                     gh_executor.map(encode_geohash_batch, batch_args, chunksize=gh_chunksize),
                     total=len(batch_args),
-                    desc=f"Geohash encoding"
+                    desc=f"  Geohash encoding (batch {current_batch_num}/{total_batches})"
                 ):
                     geohashes.extend(result)
         
         # Add geohashes to dataframe
         cleaned_data['geohash'] = geohashes
-        # cleaned_data=cleaned_data[~cleaned_data['geohash'].isin(black_list)]
-        # Group cleaned data by maid
-        grouped_data = cleaned_data.groupby('maid')
+        del geohashes
+        gc.collect()
         
-        # Prepare data for parallel processing
-        maid_data_list = [(maid, group) for maid, group in grouped_data]
+        # Prepare data for parallel processing - optimized groupby
+        print(f"Grouping data by MAID...")
+        maid_data_list = list(cleaned_data.groupby('maid', sort=False))
+        del cleaned_data
+        gc.collect()
         
-        print(f"Found {len(maid_data_list)} unique MAIDs to process in {date_folder}")
+        print(f"Found {len(maid_data_list):,} unique MAIDs to process in this batch")
         
         # Use ProcessPoolExecutor to process all maids with progress bar
-        # Limit number of processes to avoid memory issues and allow env override
         try:
             max_workers_env = int(os.environ.get('MAX_WORKERS', '0'))
         except Exception:
@@ -347,14 +325,14 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
         if max_workers_env and max_workers_env > 0:
             num_processes = min(len(maid_data_list), max_workers_env)
         else:
-            # Default to a conservative fraction to avoid I/O contention
             num_processes = min(len(maid_data_list), max(1, min(cpu_count, 96)))
 
-        # Chunksize for executor.map to reduce overhead
         try:
             map_chunksize = int(os.environ.get('MAP_CHUNKSIZE', '100'))
         except Exception:
             map_chunksize = 100
+        
+        print(f"Processing MAIDs with {num_processes} workers...")
         
         # Set output_dir in environment for child processes
         os.environ['PROCESS_OUTPUT_DIR'] = output_dir
@@ -363,21 +341,25 @@ def process_dataset(raw_data_base, skip_existing_maids, tf_instance, output_dir,
             results = list(tqdm(
                 executor.map(process_with_output_dir, maid_data_list, chunksize=map_chunksize), 
                 total=len(maid_data_list), 
-                desc=f"Processing MAIDs for {date_folder}"
+                desc=f"  Processing MAIDs (batch {current_batch_num}/{total_batches})"
             ))
         
         # Count successful results
         successful_maids = sum(1 for _, success in results if success)
         
-        print(f"Completed processing {successful_maids} MAIDs from {date_folder}")
+        print(f"Completed processing {successful_maids:,}/{len(maid_data_list):,} MAIDs from batch {current_batch_num}/{total_batches}")
         
-        # Close DuckDB connection for this date
-        conn.close()
-        
-        # Collect garbage after processing each date to free up memory
+        # Collect garbage after processing each batch to free up memory
+        del maid_data_list
+        del results
         gc.collect()
 
-    print(f"\nCompleted processing all date folders")
+    # Close DuckDB connection
+    conn.close()
+    
+    print(f"\n{'='*60}")
+    print(f"Completed processing all file batches")
+    print(f"{'='*60}")
 
 def process_with_output_dir(maid_data):
     """Wrapper function for process_maid_data that can be used with ProcessPoolExecutor"""
@@ -398,11 +380,11 @@ def main():
     import pickle
     # Load MAID tuple mapping for deduplication (only once in main process)
     maid_tuple_file = os.environ.get('MAID_MAPPING_FILE', './maid_mapping.pkl')
-    #print(f"Loading MAID tuple mapping from {maid_tuple_file}...")
+    print(f"Loading MAID tuple mapping from {maid_tuple_file}...")
     maid_mapping = pickle.load(open(maid_tuple_file, 'rb'))
-    # all_not_match = pickle.load(open('all_not_match.pkl', 'rb'))
-    valid_maids =set(maid_mapping.keys())
-    #print(f"Loaded {len(maid_mapping)} MAID pairs, total {len(valid_maids)} valid MAIDs")
+    valid_maids = set(maid_mapping.keys())
+    print(f"Loaded {len(maid_mapping):,} MAID pairs, total {len(valid_maids):,} valid MAIDs")
+    
     # Constants
     skip_existing_maids = False  # Set to False to reprocess existing MAIDs
 
@@ -452,7 +434,7 @@ def main():
     # Create directory for processed data
     os.makedirs(output_dir, exist_ok=True)
 
-    # Process all data with date range - removed timezone finder parameter
+    # Process all data with date range
     date_range_info = f" from {start_date.strftime('%Y-%m-%d') if start_date else 'beginning'} to {end_date.strftime('%Y-%m-%d') if end_date else 'end'}"
     print(f"Processing all data with date range:{date_range_info}")
     process_dataset(raw_data_base, skip_existing_maids, None, output_dir, maid_mapping, valid_maids, start_date, end_date)

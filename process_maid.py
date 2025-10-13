@@ -93,7 +93,7 @@ def process_batch(file_batch, batch_id):
         }).reset_index()
         
         # Select columns to keep
-        merged = merged[['maid', 'geohash', 'category', 'confidence', 'country', 'lat', 'lon', 'first_seen', 'last_seen', 'est_duration',
+        merged = merged[['maid', 'geohash', 'category', 'confidence','pingsink', 'spread', 'country', 'lat', 'lon', 'first_seen', 'last_seen', 'est_duration',
                'pings', 'unique_days', 'evidence_score','fluxB', 'fluxC', 'fluxD', 'fluxE', 'fluxF',
                 'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
                'saturday', 'sunday', 'month_1', 'month_2', 'month_3', 'month_4',
@@ -156,7 +156,7 @@ def process_batch(file_batch, batch_id):
 
 def main():
     # Get output directory from environment variables or use default
-    output_dir = os.environ.get('OUTPUT_DIR', './data/processed')
+    output_dir = os.environ.get('OUTPUT_DIR', './data/processed_all')
     
     # Get all files
     files = glob.glob(f'{output_dir}/*.pkl')

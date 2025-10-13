@@ -8,8 +8,8 @@ mrc = pd.read_parquet(mrc_file)
 
 def process_mrc(df):
     all_cell_info=[]
+    print("processing...",df.shape[0])
     for i in df[df.category.isin(['home','work','leisure'])].geohash.unique():
-    
         nearby_towers = mrc[mrc['geohash'].str.startswith(i[:6])]  # Use first 6 chars for broader search
         # Calculate distances to nearby towers
         cell_info = {}

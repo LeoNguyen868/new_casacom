@@ -6,7 +6,7 @@ from tqdm import tqdm
 import os
 import re
 import glob
-from envidence import EvidenceStore
+from envidence_new import EvidenceStore
 from typing import Dict, List, Tuple
 import duckdb
 import sys
@@ -102,35 +102,23 @@ def process_maid_data(maid_data):
     try:
         # Convert pandas DataFrame to numpy array to avoid serialization issues
         # Get rows containing geohash, timestamp, latitude, and longitude
+        prepared_data.sort_values(by='timestamp', inplace=True)
         rows = prepared_data[['geohash', 'timestamp', 'latitude', 'longitude', 'flux']].values.tolist()
         
         # Create store for this maid
         store = EvidenceStore(maid=maid)
         
-        # Prepare timestamp data and coordinates - group by geohash
-        setin: Dict[str, List[str]] = {}
-        coordinates: Dict[str, Tuple[float, float]] = {}
-        flux_values: Dict[str, List[str]] = {}
+        # Group data by geohash
+        timestamp_data: Dict[str, List[str]] = {}
+        coordinates: Dict[str, List[str]] = {}
+        flux_data: Dict[str, List[str]] = {}
         
-        # Process coordinates and flux first
         for gh, ts, lat, lon, flux in rows:
-            if gh not in coordinates:
-                coordinates[gh] = (lat, lon)
-                flux_values[gh] = [flux] if flux is not None else []
-            else:
-                # Average the coordinates if we have multiple points
-                current_lat, current_lon = coordinates[gh]
-                coordinates[gh] = ((current_lat + lat) / 2, (current_lon + lon) / 2)
-                # Collect flux values
-                if flux is not None:
-                    flux_values.setdefault(gh, []).append(flux)
-        
-        # Process timestamps separately
-        for gh, ts, _, _, _ in rows:
-            setin.setdefault(gh, []).append(ts)
-        
-        # Update store with timestamp data, coordinates, and flux values
-        store.update(setin, coordinates, flux_values)
+            timestamp_data.setdefault(gh, []).append(ts)
+            coordinates.setdefault(gh, []).append(pgh.encode(lat, lon, precision=12))
+            if flux is not None:
+                flux_data.setdefault(gh, []).append(flux)
+        store.update(timestamp_data, coordinates, flux_data)
         
         # Return maid and store data for daily consolidation
         return maid, store.store

@@ -11,3 +11,10 @@ __pycache__/
 map.json
 match_home.parquet
 match_work.parquet
+match_home_all.parquet
+match_work_all.parquet
+home_match_80.parquet
+work_match_80.parquet
+match_all_maids_home.parquet
+match_all_maids_work.parquet
+all_not_match.pkl

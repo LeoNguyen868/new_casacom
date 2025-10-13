@@ -143,9 +143,10 @@ def calculate_combined_scores(row):
             else:
                 merged[category] = (poi_score[category])
     
-    # Find highest scoring category
-    if merged:
-        highest_category = max(merged.items(), key=lambda x: x[1])
+    # Find highest scoring category (exclude pingsink from category determination)
+    category_candidates = {k: v for k, v in merged.items() if k != 'pingsink'}
+    if category_candidates:
+        highest_category = max(category_candidates.items(), key=lambda x: x[1])
         category = highest_category[0]
         confidence = highest_category[1]
     else:
@@ -158,14 +159,14 @@ def calculate_combined_scores(row):
         'confidence': confidence
     }
     
-    # Add all category scores (home, work, leisure, path)
-    for category in ['home', 'work', 'leisure', 'path']:
+    # Add all category scores (home, work, leisure, path, pingsink)
+    for category in ['home', 'work', 'leisure', 'path', 'pingsink']:
         result[category] = merged.get(category, 0.0)
     
     return pd.Series(result)
 
 import numpy as np
-from envidence import *
+from envidence_new import *
 
 def load_maid(maid_file):
     store=EvidenceStore()
@@ -209,7 +210,10 @@ def load_maid(maid_file):
             'fluxC': l5['flux_counts']['C'],
             'fluxD': l5['flux_counts']['D'],
             'fluxE': l5['flux_counts']['E'],
-            'fluxF': l5['flux_counts']['F']
+            'fluxF': l5['flux_counts']['F'],
+            'mean_geohash': meta.get('mean_geohash', None),
+            'spread': meta.get('std_geohash_m', None),
+            'mean_time_diff_seconds': meta.get('mean_time_diff_seconds', None)
         }
         
         # Add day of week columns

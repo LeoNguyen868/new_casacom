@@ -14,4 +14,4 @@ for i, file_path in enumerate(all_home_gt):
 """).df()
     all_df.append(cc)
 all_df=pd.concat(all_df)
-all_df.to_parquet('/home/hieu/Work/new_casacom/data/months/all_home_match.parquet')
+all_df.to_parquet('/home/hieu/Work/new_casacom/data/months/home_match_80.parquet')

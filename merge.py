@@ -33,7 +33,7 @@ def merge_batch_files():
         dfs = []
         for file in tqdm(batch_files, desc=f"Reading {category} batch files"):
             try:
-                df = pd.read_csv(file)
+                df = pd.read_parquet(file)
                 dfs.append(df)
             except Exception as e:
                 print(f"Error reading {file}: {e}")

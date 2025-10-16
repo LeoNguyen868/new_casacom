@@ -2,7 +2,8 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import pandas as pd
 import os
-
+import warnings
+warnings.filterwarnings('ignore')
 # Get PostgreSQL connection parameters from environment variables or use defaults
 db_params = {
     "dbname": os.environ.get("POSTGRES_DB", "osm"),
@@ -42,6 +43,7 @@ import json
 key_tag=json.load(open('./poi_tag_keys.json'))
 value_tag=json.load(open('./poi_tag_values.json'))
 building_data=json.load(open('./building_data.json'))
+gh3=pd.read_parquet('./gh3.parquet')
 k_mapping={}
 for k,v in key_tag.items():
     for i in v:
@@ -234,66 +236,71 @@ def load_maid(maid_file):
 def process_maid_data(maid):
     # Load data for the MAID
     pdf, maid_id = load_maid(maid)
-    all_pdf = pd.DataFrame()
+    ndk=pdf.geohash.str[:3].isin(gh3.gh3.unique())
+    pdf_in=pdf[ndk]
+    pdf_notin=pdf[~ndk]
+    all_pdf=pd.DataFrame()
+    final_pdf=pd.DataFrame()
+    stationary=pd.DataFrame()
+    movement=pd.DataFrame()
     # Skip processing if dataframe is empty
-    if pdf.empty:
-        return pd.DataFrame(), None
-    
-    # Calculate quantiles for filtering stationary vs movement points
-    q_base = 0.9
-    q = min(q_base + np.log2(len(pdf))/100, 0.99)
-    est_duration = pdf.est_duration.quantile(q)
-    pings = pdf.pings.quantile(q)
-    
-    # Split data into stationary and movement points
-    is_stationary = (pdf.est_duration >= est_duration) & (pdf.pings >= pings)
-    stationary = pdf[is_stationary].reset_index(drop=True)
-    movement = pdf[~is_stationary].reset_index(drop=True)
-    # Process POI information based on whether we have both stationary and movement data
-    if stationary.empty and movement.empty:
-        # No data available
-        return pd.DataFrame(), None
-    
-    elif stationary.empty:
-        # Only movement data available
-        movement[['poi_score', 'poi_info', 'poi_coordinates']] = movement.apply(
-            lambda row: pd.Series(get_road(row['lat'], row['lon'])),
-            axis=1
-        )
-        # movement.dropna(inplace=True)
-        all_pdf = movement
-    
-    elif movement.empty:
-        # Only stationary data available
-        stationary[['poi_score', 'poi_info', 'poi_coordinates']] = stationary.apply(
-            lambda row: pd.Series(get_poi_category(row['lat'], row['lon'], v_mapping, k_mapping,building_mapping)),
-            axis=1
-        )
-        all_pdf = stationary
-        # pass
-    
-    else:
-        # # Both stationary and movement data available
-        stationary[['poi_score', 'poi_info', 'poi_coordinates']] = stationary.apply(
-            lambda row: pd.Series(get_poi_category(row['lat'], row['lon'], v_mapping, k_mapping,building_mapping)),
-            axis=1
-        )
-        movement[['poi_score', 'poi_info', 'poi_coordinates']] = movement.apply(
-            lambda row: pd.Series(get_road(row['lat'], row['lon'])),
-            axis=1
-        )
-        # movement.dropna(inplace=True)
-        all_pdf = pd.concat([stationary, movement], ignore_index=True)
+    if not pdf_in.empty:
+        # Calculate quantiles for filtering stationary vs movement points
+        q_base = 0.9
+        q = min(q_base + np.log2(len(pdf_in))/100, 0.99)
+        est_duration = pdf_in.est_duration.quantile(q)
+        pings = pdf_in.pings.quantile(q)
+        # Split data into stationary and movement points
+        is_stationary = (pdf_in.est_duration >= est_duration) & (pdf_in.pings >= pings)
+        stationary = pdf_in[is_stationary].reset_index(drop=True)
+        movement = pdf_in[~is_stationary].reset_index(drop=True)
+        if stationary.empty:
+            # Only movement data available
+            movement[['poi_score', 'poi_info', 'poi_coordinates']] = movement.apply(
+                lambda row: pd.Series(get_road(row['lat'], row['lon'])),
+                axis=1
+            )
+            # movement.dropna(inplace=True)
+            all_pdf = movement
+        
+        elif movement.empty:
+            # Only stationary data available
+            stationary[['poi_score', 'poi_info', 'poi_coordinates']] = stationary.apply(
+                lambda row: pd.Series(get_poi_category(row['lat'], row['lon'], v_mapping, k_mapping,building_mapping)),
+                axis=1
+            )
+            all_pdf = stationary
+            # pass
+        
+        else:
+            # # Both stationary and movement data available
+            stationary[['poi_score', 'poi_info', 'poi_coordinates']] = stationary.apply(
+                lambda row: pd.Series(get_poi_category(row['lat'], row['lon'], v_mapping, k_mapping,building_mapping)),
+                axis=1
+            )
+            movement[['poi_score', 'poi_info', 'poi_coordinates']] = movement.apply(
+                lambda row: pd.Series(get_road(row['lat'], row['lon'])),
+                axis=1
+            )
+            # movement.dropna(inplace=True)
+            all_pdf = pd.concat([stationary, movement], ignore_index=True)
     
     # Calculate combined scores and add to dataframe
-    if all_pdf.empty:
-        return pd.DataFrame(), None
+    if not all_pdf.empty:
+        all_pdf['poi_score'] = all_pdf['poi_score'].apply(lambda x: {} if isinstance(x, float) else x)
+        
+        score_columns = all_pdf.apply(calculate_combined_scores, axis=1)
+        final_pdf = pd.concat([all_pdf, score_columns], axis=1)
+        final_pdf.reset_index(drop=True, inplace=True)
     
-    # Check if poi_score is a float and convert to dict if needed to prevent TypeError
-    all_pdf['poi_score'] = all_pdf['poi_score'].apply(lambda x: {} if isinstance(x, float) else x)
-    
-    score_columns = all_pdf.apply(calculate_combined_scores, axis=1)
-    final_pdf = pd.concat([all_pdf, score_columns], axis=1)
-    final_pdf.reset_index(drop=True, inplace=True)
+    if not pdf_notin.empty:
+        pdf_notin['poi_score'] = None
+        pdf_notin['poi_info'] = None
+        pdf_notin['poi_coordinates'] = None
+        score_columns = pdf_notin.apply(calculate_combined_scores, axis=1)
+        pdf_notin = pd.concat([pdf_notin,score_columns],axis=1)
+        pdf_notin.reset_index(drop=True, inplace=True)
+        # Combine pdf_in (processed) and pdf_notin (unprocessed)
+        final_pdf = pd.concat([final_pdf, pdf_notin], ignore_index=True)
     
     return final_pdf, maid_id
